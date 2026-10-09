@@ -63,8 +63,10 @@ alter table public.audit_logs enable row level security;
 
 drop policy if exists "profile read own or admin" on public.profiles;
 create policy "profile read own or admin" on public.profiles for select to authenticated using(id=auth.uid() or public.is_super_admin());
+-- Only an existing super admin can update profile rows. Regular users cannot self-approve or grant themselves admin access.
 drop policy if exists "profile update own or admin" on public.profiles;
-create policy "profile update own or admin" on public.profiles for update to authenticated using(id=auth.uid() or public.is_super_admin()) with check((id=auth.uid() and is_super_admin=(select p.is_super_admin from public.profiles p where p.id=auth.uid())) or public.is_super_admin());
+drop policy if exists "profile update admin only" on public.profiles;
+create policy "profile update admin only" on public.profiles for update to authenticated using((select public.is_super_admin())) with check((select public.is_super_admin()));
 drop policy if exists "services read enabled or admin" on public.services;
 create policy "services read enabled or admin" on public.services for select to authenticated using(enabled=true or public.is_super_admin());
 drop policy if exists "services admin all" on public.services;
@@ -90,7 +92,8 @@ begin
  on conflict(id) do nothing;
  insert into public.wallets(user_id,balance_kobo) values(new.id,0) on conflict(user_id) do nothing;
  return new;
-end; $$;
+end; $;
+revoke all on function public.handle_new_user() from public, anon, authenticated;
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users for each row execute procedure public.handle_new_user();
 
