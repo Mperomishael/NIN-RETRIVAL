@@ -27,6 +27,19 @@ function safeServicePayload(serviceId: string, body: Record<string, unknown>): {
     const normalizedPhone = phone.startsWith("+234") ? "0" + phone.slice(4) : phone.startsWith("234") ? "0" + phone.slice(3) : phone;
     return { endpoint: "/phone/", payload: { number: normalizedPhone } };
   }
+  if (serviceId === "phone-slip") {
+    const phone = str("phone").replace(/[\s-]/g, "");
+    if (!/^(0\d{10}|234\d{10}|\+234\d{10})$/.test(phone)) throw new Error("Enter a valid Nigerian phone number.");
+    const normalizedPhone = phone.startsWith("+234") ? "0" + phone.slice(4) : phone.startsWith("234") ? "0" + phone.slice(3) : phone;
+    const slipType = str("slipType") || "Standard Slip";
+    if (!["Standard Slip", "Premium Slip", "Regular Slip", "Information Slip"].includes(slipType)) throw new Error("Choose a supported slip type.");
+    return { endpoint: "/phone-slip/", payload: { phone: normalizedPhone, slip_type: slipType } };
+  }
+  if (serviceId === "tracking-id-lookup") {
+    const trackingId = str("trackingId");
+    if (!/^[A-Za-z0-9]{8,32}$/.test(trackingId)) throw new Error("Enter the tracking ID supplied by the identity provider.");
+    return { endpoint: "/tracking-id/", payload: { number: trackingId } };
+  }
   if (serviceId === "bvn-verify") {
     if (!elevenDigits(str("bvn"))) throw new Error("Enter a valid 11-digit BVN.");
     return { endpoint: "/bvn/", payload: { number: str("bvn") } };
