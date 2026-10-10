@@ -1,7 +1,7 @@
 -- TopVerify treasury foundation: separate company treasury from agent wallet liabilities.
 create schema if not exists private;
-revoke all on schema private from public, anon, authenticated;
-grant usage on schema private to service_role;
+revoke all on schema private from public, anon;
+grant usage on schema private to authenticated, service_role;
 
 create table if not exists public.treasury_accounts (
   id uuid primary key default gen_random_uuid(),
