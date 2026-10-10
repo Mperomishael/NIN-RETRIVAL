@@ -28,9 +28,9 @@ See [docs/topverify-setup.md](docs/topverify-setup.md) for environment variables
 
 ## NINSlip integration
 
-The server route at `app/api/identity/route.ts` uses `NINSLIP_API_KEY` as a Bearer token. Currently exposed service types are NIN verification, phone-based NIN lookup, BVN verification, demographic matching, and NIN/BVN PDF slip generation. It does not store full identity responses in request history; it records only request metadata and a minimal summary.
+The server route at `app/api/identity/route.ts` uses `NINSLIP_API_KEY` as a Bearer token. The service catalogue and prices are read from Supabase. The UI supports NIN verification, phone-based NIN lookup, BVN verification, demographic matching, NIN/BVN PDF slips, NIN validation submissions, IPE clearance submissions, and NIN modification submissions. Validation, IPE clearance and modification are asynchronous provider requests: the wallet fee is reserved for an accepted submission and the request remains in processing status; provider status polling is not yet automated. Full identity responses are not stored in request history; the app records request metadata and a minimal summary.
 
-Before enabling production access, confirm the upstream account's permissions, price list, intended customer-facing use and legal basis for each endpoint. Validation, IPE clearance and modification services are intentionally not exposed by the current UI.
+Before enabling production access, confirm your upstream account permissions, provider pricing, intended customer-facing use and legal basis for each endpoint. Only submit identity or modification requests with appropriate authorization and consent.
 
 ## Wallet funding and merchant settlement
 
