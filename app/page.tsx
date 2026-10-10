@@ -1,87 +1,279 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Activity, ArrowDownLeft, ArrowDownToLine, ArrowRight, ArrowUpRight, BadgeCheck,
-  Bell, BookOpenCheck, Boxes, ChevronDown, CircleHelp, ClipboardCheck, CreditCard,
-  FileBadge, FileCheck2, Fingerprint, Gauge, History, LayoutDashboard, LifeBuoy,
-  LockKeyhole, LogOut, Menu, MoreHorizontal, Search, Settings2, ShieldCheck,
-  Smartphone, UserCheck, Users, Wallet, X, Zap
+  Activity, ArrowDownToLine, ArrowRight, BadgeCheck, Bell, Check, ChevronRight,
+  CircleHelp, Clock3, CreditCard, FileCheck2, Fingerprint, Home, LogOut, Menu,
+  Search, ShieldCheck, Smartphone, UserRound, Users, Wallet, X, Zap
 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
-type Service = { id: string; title: string; description: string; category: string; price: number; icon: typeof Fingerprint };
-const initialServices: Service[] = [
-  { id: "nin-lookup", title: "NIN Verification", description: "Verify a NIN against an authorized source", category: "Verification", price: 350, icon: Fingerprint },
-  { id: "phone-lookup", title: "NIN Phone Lookup", description: "Submit an authorized phone association check", category: "Verification", price: 450, icon: Smartphone },
-  { id: "bvn-verify", title: "BVN Verification", description: "Validate a Bank Verification Number", category: "Verification", price: 400, icon: ShieldCheck },
-  { id: "demographic", title: "Demographic Match", description: "Compare supplied details with an authorized response", category: "Verification", price: 500, icon: UserCheck },
-  { id: "nin-slip", title: "NIN Slip Request", description: "Request an eligible NIN slip document", category: "Documents", price: 1200, icon: FileBadge },
-  { id: "bvn-slip", title: "BVN Slip Request", description: "Submit an eligible document request", category: "Documents", price: 1000, icon: FileCheck2 },
-  { id: "nin-validation", title: "NIN Validation", description: "Submit a validation request for review", category: "Special services", price: 700, icon: ClipboardCheck },
-  { id: "ipe-clearance", title: "IPE Clearance", description: "Submit or track an eligible clearance request", category: "Special services", price: 1500, icon: BadgeCheck },
-  { id: "nin-modification", title: "NIN Modification", description: "Start an eligible demographic update request", category: "Special services", price: 2000, icon: Settings2 },
-];
-const nav = [
-  { group: "WORKSPACE", items: [{ name: "Overview", icon: LayoutDashboard }, { name: "Identity services", icon: Fingerprint }, { name: "Request history", icon: History }] },
-  { group: "FINANCE", items: [{ name: "My wallet", icon: Wallet }, { name: "Transactions", icon: CreditCard }] },
-  { group: "MANAGEMENT", items: [{ name: "Agents", icon: Users }, { name: "Service pricing", icon: Settings2 }, { name: "Activity logs", icon: Activity }] },
-];
-const money = (n: number) => new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 0 }).format(n);
+type Profile = {
+  id: string; full_name: string; phone: string | null; business_name: string | null;
+  business_address: string | null; intended_use: string | null; status: "pending" | "approved" | "restricted";
+  is_super_admin: boolean; terms_accepted_at: string | null;
+};
+type Service = { id: string; name: string; description: string; category: string; price_kobo: number; enabled: boolean };
+type WalletRow = { balance_kobo: number; currency: string };
+type RequestRow = { id: string; service_id: string; status: string; fee_kobo: number; request_reference: string; created_at: string };
+type RequestFields = { nin: string; phone: string; bvn: string; firstName: string; lastName: string; gender: string; dateOfBirth: string; slipType: string };
+
+const liveServices = ["nin-lookup", "phone-lookup", "bvn-verify", "demographic", "nin-slip", "bvn-slip"];
+const money = (kobo: number) => new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 0 }).format(kobo / 100);
+const dateText = (value: string) => new Date(value).toLocaleString("en-NG", { dateStyle: "medium", timeStyle: "short" });
+const emptyFields: RequestFields = { nin: "", phone: "", bvn: "", firstName: "", lastName: "", gender: "m", dateOfBirth: "", slipType: "Standard Slip" };
 
 export default function Home() {
+  const [supabase] = useState(() => createClient());
+  const [user, setUser] = useState<{ id: string; email?: string } | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [wallet, setWallet] = useState<WalletRow | null>(null);
+  const [services, setServices] = useState<Service[]>([]);
+  const [history, setHistory] = useState<RequestRow[]>([]);
   const [section, setSection] = useState("Overview");
-  const [admin, setAdmin] = useState(false);
-  const [mobileNav, setMobileNav] = useState(false);
-  const [services, setServices] = useState(initialServices);
+  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
+  const [authLoading, setAuthLoading] = useState(false);
+  const [requestLoading, setRequestLoading] = useState(false);
+  const [mobileMenu, setMobileMenu] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [businessName, setBusinessName] = useState("");
+  const [businessAddress, setBusinessAddress] = useState("");
+  const [intendedUse, setIntendedUse] = useState("Customer onboarding and identity verification with consent");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Service | null>(null);
+  const [fields, setFields] = useState<RequestFields>(emptyFields);
+  const [requestConsent, setRequestConsent] = useState(false);
   const [notice, setNotice] = useState("");
-  const [form, setForm] = useState({ nin: "", phone: "", firstName: "", lastName: "", consent: false });
-  const [amount, setAmount] = useState("5000");
-  const [walletBalance, setWalletBalance] = useState(48500);
-  const [agentStatus, setAgentStatus] = useState<Record<string, string>>({ "Chisom Okafor": "Pending", "Ibrahim Musa": "Approved", "Blessing Eze": "Restricted" });
-  const filtered = useMemo(() => services.filter(s => (s.title + " " + s.description + " " + s.category).toLowerCase().includes(query.toLowerCase())), [services, query]);
-  const flash = (message: string) => { setNotice(message); window.setTimeout(() => setNotice(""), 3500); };
-  const openService = (s: Service) => { setSelected(s); setForm({ nin: "", phone: "", firstName: "", lastName: "", consent: false }); setSection("Identity services"); };
-  const submitRequest = (e: React.FormEvent) => { e.preventDefault(); if (!form.consent) return flash("Please confirm that you are authorized to submit this request."); if (walletBalance < (selected?.price || 0)) return flash("Insufficient demo wallet balance. Fund your wallet first."); setWalletBalance(v => v - (selected?.price || 0)); setSelected(null); flash("Demo request recorded in this preview. No provider was contacted."); };
-  const navTo = (name: string) => { setSection(name); setSelected(null); setMobileNav(false); };
-  return <div className="app-shell">
-    {mobileNav && <button className="scrim" aria-label="Close navigation" onClick={() => setMobileNav(false)} />}
-    <aside className={`sidebar ${mobileNav ? "sidebar-open" : ""}`}>
-      <div className="brand"><div className="brand-mark"><Fingerprint size={23}/></div><div><div className="brand-name">EMPIRE <span>IDENTITY</span></div><div className="brand-caption">IDENTITY HUB</div></div><button className="icon-button sidebar-close" onClick={() => setMobileNav(false)} aria-label="Close menu"><X size={18}/></button></div>
-      <div className="workspace-switch"><div className="workspace-avatar">{admin ? "SA" : "MY"}</div><div className="workspace-copy"><strong>{admin ? "Super Admin" : "Agent workspace"}</strong><span>{admin ? "Full access preview" : "Agent account"}</span></div><ChevronDown size={15}/></div>
-      <nav className="side-nav">{nav.map(group => <div className="nav-group" key={group.group}><div className="nav-label">{group.group}</div>{group.items.filter(item => admin || !["Agents", "Service pricing", "Activity logs"].includes(item.name)).map(item => <button key={item.name} className={`nav-item ${section === item.name ? "active" : ""}`} onClick={() => navTo(item.name)}><item.icon size={17}/><span>{item.name}</span>{item.name === "Request history" && <span className="nav-count">12</span>}</button>)}</div>)}
+  const [noticeError, setNoticeError] = useState(false);
+  const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [checking, setChecking] = useState(true);
+  const [fundAmount, setFundAmount] = useState("5000");
+
+  const flash = (message: string, isError = false) => { setNotice(message); setNoticeError(isError); };
+  const refreshData = useCallback(async (userId: string) => {
+    const [p, w, s, h] = await Promise.all([
+      supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
+      supabase.from("wallets").select("balance_kobo,currency").eq("user_id", userId).maybeSingle(),
+      supabase.from("services").select("id,name,description,category,price_kobo,enabled").eq("enabled", true).order("category").order("name"),
+      supabase.from("identity_requests").select("id,service_id,status,fee_kobo,request_reference,created_at").order("created_at", { ascending: false }).limit(8),
+    ]);
+    if (p.data) setProfile(p.data as Profile);
+    if (w.data) setWallet(w.data as WalletRow);
+    if (s.data) setServices((s.data as Service[]).filter(item => liveServices.includes(item.id)));
+    if (h.data) setHistory(h.data as RequestRow[]);
+  }, [supabase]);
+
+  useEffect(() => {
+    let alive = true;
+    supabase.auth.getUser().then(({ data }) => {
+      if (!alive) return;
+      if (data.user) { setUser({ id: data.user.id, email: data.user.email }); void refreshData(data.user.id); }
+      setChecking(false);
+    }).catch(() => { if (alive) setChecking(false); });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      const nextUser = session?.user;
+      setUser(nextUser ? { id: nextUser.id, email: nextUser.email } : null);
+      if (nextUser) void refreshData(nextUser.id);
+      else { setProfile(null); setWallet(null); setServices([]); setHistory([]); }
+    });
+    return () => { alive = false; listener.subscription.unsubscribe(); };
+  }, [supabase, refreshData]);
+
+  const filteredServices = useMemo(() => services.filter(s => (s.name + " " + s.description + " " + s.category).toLowerCase().includes(query.toLowerCase())), [services, query]);
+  const serviceIcon = (id: string) => id.includes("phone") ? Smartphone : id.includes("slip") ? FileCheck2 : id.includes("bvn") ? ShieldCheck : Fingerprint;
+
+  async function handleAuth(event: FormEvent) {
+    event.preventDefault();
+    setAuthLoading(true); setNotice("");
+    try {
+      if (authMode === "signup") {
+        if (!acceptedTerms) throw new Error("Please accept the acceptable-use terms and privacy notice to continue.");
+        const { data, error } = await supabase.auth.signUp({
+          email, password,
+          options: { data: {
+            full_name: fullName.trim(), phone: phone.trim(), business_name: businessName.trim(),
+            business_address: businessAddress.trim(), intended_use: intendedUse.trim(),
+            terms_accepted_at: new Date().toISOString(), terms_version: "topverify-acceptable-use-v1"
+          } }
+        });
+        if (error) throw error;
+        if (data.session && data.user) {
+          setUser({ id: data.user.id, email: data.user.email });
+          await refreshData(data.user.id);
+          flash("Registration received. Your account is pending TopVerify review.");
+        } else {
+          flash("Registration received. Check your email to confirm the account, then sign in.");
+          setAuthMode("signin");
+        }
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        if (data.user) { setUser({ id: data.user.id, email: data.user.email }); await refreshData(data.user.id); flash("Welcome back to TopVerify."); }
+      }
+    } catch (error) { flash(error instanceof Error ? error.message : "Unable to complete authentication.", true); }
+    finally { setAuthLoading(false); }
+  }
+
+  async function signOut() {
+    await supabase.auth.signOut();
+    setUser(null); setProfile(null); setWallet(null); setSelected(null); setSection("Overview");
+    flash("You have signed out.");
+  }
+
+  function openService(service: Service) {
+    setSelected(service); setFields(emptyFields); setRequestConsent(false); setResult(null); setSection("Services"); setNotice("");
+  }
+
+  async function submitRequest(event: FormEvent) {
+    event.preventDefault();
+    if (!selected) return;
+    if (!requestConsent) { flash("Confirm the data subject has authorized this specific identity request.", true); return; }
+    setRequestLoading(true); setResult(null); setNotice("");
+    try {
+      const response = await fetch("/api/identity", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ serviceId: selected.id, consent: requestConsent, ...fields })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "The request could not be completed.");
+      setResult(payload);
+      flash("Request completed. Your result is shown below.");
+      if (user) await refreshData(user.id);
+    } catch (error) { flash(error instanceof Error ? error.message : "Request failed.", true); if (user) await refreshData(user.id); }
+    finally { setRequestLoading(false); }
+  }
+
+  function downloadSlip(slip: Record<string, unknown>) {
+    const base64 = String(slip.base64 || "");
+    const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+    const blob = new Blob([bytes], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url; anchor.download = String(slip.fileName || "TopVerify-slip.pdf"); anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  if (checking) return <main className="tv-loading"><div className="tv-orbit"><Fingerprint size={30}/></div><strong>TopVerify</strong><span>Preparing your secure workspace…</span></main>;
+
+  if (!user) return <main className="tv-auth-shell">
+    <div className="tv-auth-art">
+      <div className="tv-orb tv-orb-one"/><div className="tv-orb tv-orb-two"/>
+      <div className="tv-brand tv-brand-light"><div className="tv-brand-mark"><Fingerprint size={25}/></div><div><strong>TopVerify</strong><span>IDENTITY OPERATIONS</span></div></div>
+      <div className="tv-auth-copy"><span className="tv-kicker"><span/> TRUSTED WORKFLOWS. ACCOUNTABLE ACCESS.</span><h1>Identity services,<br/><em>under your control.</em></h1><p>A workspace for authorized agents to request identity checks, manage dedicated funds, and keep accountable records.</p>
+        <div className="tv-trust-row"><div><ShieldCheck size={17}/><span>Consent-first access</span></div><div><Wallet size={17}/><span>Dedicated wallets</span></div><div><Activity size={17}/><span>Auditable requests</span></div></div>
+      </div>
+      <div className="tv-auth-bottom"><span>TOPVERIFY / SECURE AGENT NETWORK</span><span>BUILT FOR RESPONSIBLE IDENTITY OPERATIONS</span></div>
+    </div>
+    <div className="tv-auth-panel">
+      <div className="tv-auth-mobile-brand"><div className="tv-brand-mark"><Fingerprint size={23}/></div><strong>TopVerify</strong></div>
+      <div className="tv-auth-form-wrap">
+        <span className="tv-form-eyebrow">{authMode === "signin" ? "AGENT WORKSPACE" : "NEW AGENT ENROLMENT"}</span>
+        <h2>{authMode === "signin" ? "Welcome back." : "Create your workspace."}</h2>
+        <p className="tv-muted">{authMode === "signin" ? "Sign in to manage your identity requests and wallet." : "Submit your details for review. Live services remain locked until approval."}</p>
+        <form onSubmit={handleAuth} className="tv-form">
+          {authMode === "signup" && <>
+            <label>Full name<input required autoComplete="name" value={fullName} onChange={e=>setFullName(e.target.value)} placeholder="Your legal name"/></label>
+            <div className="tv-two-fields"><label>Phone number<input required autoComplete="tel" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="080…"/></label><label>Business / agency<input value={businessName} onChange={e=>setBusinessName(e.target.value)} placeholder="Optional"/></label></div>
+            <label>Business address<input value={businessAddress} onChange={e=>setBusinessAddress(e.target.value)} placeholder="Business location (if applicable)"/></label>
+            <label>Intended use<select value={intendedUse} onChange={e=>setIntendedUse(e.target.value)}><option>Customer onboarding and identity verification with consent</option><option>Internal compliance checks with consent</option><option>Professional agent / reseller services</option><option>Other lawful business purpose</option></select></label>
+          </>}
+          <label>Email address<input required type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@company.com"/></label>
+          <label>Password<input required minLength={8} type="password" autoComplete={authMode === "signin" ? "current-password" : "new-password"} value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 8 characters"/></label>
+          {authMode === "signup" && <label className="tv-terms"><input type="checkbox" checked={acceptedTerms} onChange={e=>setAcceptedTerms(e.target.checked)}/><span>I agree to TopVerify’s acceptable-use rules and privacy notice. I will only request identity information for a lawful, disclosed purpose with the data subject’s authorization; I will not use or disclose it for fraud, harassment, discrimination, impersonation, or any other misuse.</span></label>}
+          {notice && <div className={noticeError ? "tv-alert tv-alert-error" : "tv-alert"}>{notice}</div>}
+          <button className="tv-primary-btn" disabled={authLoading}>{authLoading ? "Please wait…" : authMode === "signin" ? "Sign in securely" : "Submit for review"} <ArrowRight size={17}/></button>
+        </form>
+        <div className="tv-auth-switch">{authMode === "signin" ? "New to TopVerify?" : "Already have an account?"} <button onClick={()=>{setAuthMode(authMode==="signin"?"signup":"signin");setNotice("");}}>{authMode === "signin" ? "Create agent account" : "Sign in instead"}</button></div>
+        <div className="tv-privacy-note"><ShieldCheck size={15}/><span>Identity data is sensitive. Your access is subject to account approval, service permissions and purpose-specific consent.</span></div>
+      </div>
+    </div>
+  </main>;
+
+  const isApproved = profile?.status === "approved" || profile?.is_super_admin;
+  const navItems = [{ label: "Overview", icon: Home }, { label: "Services", icon: Fingerprint }, { label: "Request history", icon: Clock3 }, { label: "My wallet", icon: Wallet }];
+  const activeService = selected;
+  const selectedIcon = activeService ? serviceIcon(activeService.id) : Fingerprint;
+
+  return <main className="tv-app">
+    {mobileMenu && <button className="tv-scrim" aria-label="Close navigation" onClick={()=>setMobileMenu(false)}/>}
+    <aside className={mobileMenu ? "tv-sidebar tv-sidebar-open" : "tv-sidebar"}>
+      <div className="tv-brand"><div className="tv-brand-mark"><Fingerprint size={24}/></div><div><strong>TopVerify</strong><span>IDENTITY OPERATIONS</span></div><button className="tv-icon-btn tv-close-menu" onClick={()=>setMobileMenu(false)} aria-label="Close menu"><X size={18}/></button></div>
+      <div className="tv-workspace-card"><div className="tv-avatar">{(profile?.full_name || user.email || "TV").split(" ").map(x=>x[0]).join("").slice(0,2).toUpperCase()}</div><div><strong>{profile?.business_name || profile?.full_name || "Agent workspace"}</strong><span>{profile?.is_super_admin ? "Platform administrator" : "Agent workspace"}</span></div><span className="tv-status-dot"/></div>
+      <nav className="tv-nav"><span className="tv-nav-label">WORKSPACE</span>{navItems.map(item=><button key={item.label} className={section===item.label ? "tv-nav-item tv-nav-active" : "tv-nav-item"} onClick={()=>{setSection(item.label);setSelected(null);setMobileMenu(false);setNotice("");}}><item.icon size={18}/><span>{item.label}</span>{item.label==="Request history" && <small>{history.length}</small>}</button>)}
+      {profile?.is_super_admin && <><span className="tv-nav-label tv-nav-spaced">ADMINISTRATION</span><button className={section==="Agents"?"tv-nav-item tv-nav-active":"tv-nav-item"} onClick={()=>{setSection("Agents");setSelected(null);setMobileMenu(false);}}><Users size={18}/><span>Agent oversight</span></button><button className={section==="Pricing"?"tv-nav-item tv-nav-active":"tv-nav-item"} onClick={()=>{setSection("Pricing");setSelected(null);setMobileMenu(false);}}><CreditCard size={18}/><span>Service pricing</span></button></>}
       </nav>
-      <div className="sidebar-bottom"><div className="help-card"><div className="help-icon"><LifeBuoy size={17}/></div><strong>Need a hand?</strong><p>Visit the help centre for account and service support.</p><button onClick={() => flash("Support contact can be configured by the administrator.")}>Get support <ArrowRight size={13}/></button></div><div className="sidebar-user"><div className="avatar avatar-user">{admin ? "SA" : "MY"}</div><div className="user-copy"><strong>{admin ? "System Administrator" : "Mishael Yakubu"}</strong><span>{admin ? "Super administrator" : "Identity agent"}</span></div><button className="icon-button" aria-label="Profile options" onClick={() => flash("Profile settings are a preview in this starter.")}><MoreHorizontal size={18}/></button></div></div>
+      <div className="tv-sidebar-foot"><div className="tv-help-box"><div className="tv-help-icon"><CircleHelp size={18}/></div><strong>Need a hand?</strong><p>Contact support for account, wallet or service issues.</p><a href="mailto:support@topverify.app">Contact support <ArrowRight size={13}/></a></div><button className="tv-logout" onClick={signOut}><LogOut size={17}/> Sign out <span>{user.email}</span></button></div>
     </aside>
-    <main className="main-area">
-      <header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open navigation"><Menu size={20}/></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>{selected ? selected.title : section}</strong></div></div><div className="topbar-actions"><div className="secure-pill"><span className="secure-dot"/><LockKeyhole size={13}/> Demo environment</div><button className="icon-button notification-button" aria-label="Notifications" onClick={() => flash("You're all caught up.")}><Bell size={18}/><i/></button><button className="top-profile" onClick={() => {setAdmin(!admin); setSection("Overview"); setSelected(null); flash(admin ? "Agent preview enabled." : "Super admin preview enabled.");}}><div className="avatar avatar-user">{admin ? "SA" : "MY"}</div><div className="top-profile-copy"><strong>{admin ? "Admin preview" : "Mishael Yakubu"}</strong><small>{admin ? "Super admin" : "Agent account"}</small></div><ChevronDown size={14}/></button></div></header>
-      <div className="content-wrap">
-        {section === "Overview" && !selected && <><div className="page-heading"><div><div className="eyebrow"><Zap size={13}/> YOUR IDENTITY WORKSPACE</div><h1>Good afternoon{admin ? ", Admin" : ", Mishael"} <span className="wave">✦</span></h1><p>Here’s what’s happening with your workspace today.</p></div><button className="button button-primary" onClick={() => navTo("Identity services")}><Zap size={15}/> New request</button></div>
-          <div className="stat-grid"><Stat icon={Wallet} label="Wallet balance" value={money(walletBalance)} trend="Available demo funds" tone="blue" /><Stat icon={ClipboardCheck} label="Total requests" value="1,284" trend="+12.8% this month" tone="green" /><Stat icon={Activity} label="Completed requests" value="1,196" trend="93.1% completion rate" tone="violet" /><Stat icon={Users} label={admin ? "Registered agents" : "Account status"} value={admin ? "248" : "Approved"} trend={admin ? "18 pending review" : "Identity services enabled"} tone="amber" /></div>
-          <div className="dashboard-grid"><section className="panel service-panel"><div className="panel-heading"><div><h2>Popular services</h2><p>Start a request in just a few steps</p></div><button className="text-button" onClick={() => navTo("Identity services")}>View all <ArrowRight size={14}/></button></div><div className="popular-grid">{services.slice(0,4).map(s => <ServiceTile key={s.id} service={s} onClick={() => openService(s)}/>)}</div></section>
-          <section className="panel wallet-panel"><div className="panel-heading"><div><h2>Wallet overview</h2><p>Your available funds</p></div><div className="round-icon"><Wallet size={17}/></div></div><div className="balance-label">CURRENT BALANCE</div><div className="balance-value">{money(walletBalance)}</div><div className="wallet-foot"><span><span className="secure-dot"/> Ready to use</span><button className="button button-primary button-small" onClick={() => navTo("My wallet")}>Add funds <ArrowRight size={13}/></button></div><div className="wallet-note"><LockKeyhole size={14}/> Wallet actions are demo-only until payments are connected.</div></section>
-          <section className="panel activity-panel"><div className="panel-heading"><div><h2>Recent activity</h2><p>Your latest service requests</p></div><button className="text-button" onClick={() => navTo("Request history")}>See history <ArrowRight size={14}/></button></div><ActivityTable /></section>
-          <section className="panel security-panel"><div className="security-banner"><div className="security-symbol"><ShieldCheck size={21}/></div><div><h3>Protect your workspace</h3><p>Only process identity requests you are authorized to make, with the data subject’s consent.</p></div></div><div className="security-list"><div><BadgeCheck size={16}/><span>Consent-first request flow</span></div><div><LockKeyhole size={16}/><span>Restricted identity result access</span></div><div><BookOpenCheck size={16}/><span>Auditable request history</span></div></div></section></div>
+    <section className="tv-main">
+      <header className="tv-topbar"><div className="tv-top-left"><button className="tv-icon-btn tv-menu-btn" onClick={()=>setMobileMenu(true)} aria-label="Open menu"><Menu size={20}/></button><div className="tv-breadcrumb"><span>TopVerify</span><ChevronRight size={14}/><strong>{activeService?.name || section}</strong></div></div><div className="tv-top-actions"><div className="tv-security-pill"><span/> {isApproved ? "SECURE WORKSPACE" : "ACCOUNT UNDER REVIEW"}</div><button className="tv-icon-btn" aria-label="Notifications" onClick={()=>flash("You are up to date.")}><Bell size={18}/></button><div className="tv-profile-mini"><div className="tv-avatar">{(profile?.full_name || "TV").split(" ").map(x=>x[0]).join("").slice(0,2).toUpperCase()}</div><div><strong>{profile?.full_name || "Agent"}</strong><span>{profile?.is_super_admin ? "Administrator" : "Agent"}</span></div></div></div></header>
+      <div className="tv-content">
+        {notice && <div className={noticeError ? "tv-toast tv-toast-error" : "tv-toast"}><span>{noticeError ? <X size={16}/> : <Check size={16}/>}</span>{notice}<button onClick={()=>setNotice("")} aria-label="Dismiss"><X size={15}/></button></div>}
+        {!isApproved && <div className="tv-review-banner"><Clock3 size={19}/><div><strong>Your account is awaiting review</strong><p>Your KYC details have been submitted. Identity requests remain locked until TopVerify approves your account.</p></div><span>Pending</span></div>}
+        {section === "Overview" && !selected && <>
+          <div className="tv-page-heading"><div><span className="tv-eyebrow"><Zap size={13}/> YOUR IDENTITY WORKSPACE</span><h1>Good to see you, {(profile?.full_name || "Agent").split(" ")[0]} <span>✦</span></h1><p>One place for your identity workflows, wallet and request history.</p></div><button className="tv-button-primary" onClick={()=>{setSection("Services");setSelected(null);}}><Zap size={16}/> New request</button></div>
+          <div className="tv-stat-grid"><div className="tv-stat-card"><div><span>Available balance</span><div className="tv-stat-icon tv-blue"><Wallet size={18}/></div></div><strong>{money(Number(wallet?.balance_kobo || 0))}</strong><small>Dedicated agent wallet</small></div><div className="tv-stat-card"><div><span>Total requests shown</span><div className="tv-stat-icon tv-purple"><Activity size={18}/></div></div><strong>{history.length}</strong><small>Recent account activity</small></div><div className="tv-stat-card"><div><span>Account status</span><div className="tv-stat-icon tv-green"><ShieldCheck size={18}/></div></div><strong className="tv-status-word">{profile?.status || "Pending"}</strong><small>{isApproved ? "Live services enabled" : "Awaiting admin review"}</small></div><div className="tv-stat-card"><div><span>Available services</span><div className="tv-stat-icon tv-amber"><Fingerprint size={18}/></div></div><strong>{services.length}</strong><small>Provider-enabled catalogue</small></div></div>
+          <div className="tv-home-grid"><section className="tv-panel tv-service-panel"><div className="tv-panel-heading"><div><h2>Start with a service</h2><p>Choose a verified workflow for an authorized request.</p></div><button className="tv-text-btn" onClick={()=>setSection("Services")}>All services <ArrowRight size={14}/></button></div><div className="tv-service-grid">{services.slice(0,4).map(service=>{const Icon=serviceIcon(service.id);return <button className="tv-service-card" key={service.id} onClick={()=>openService(service)}><div className="tv-service-top"><span className="tv-service-icon"><Icon size={20}/></span><ArrowRight size={15}/></div><strong>{service.name}</strong><p>{service.description}</p><div className="tv-service-bottom"><span>{service.category}</span><b>{money(service.price_kobo)}</b></div></button>})}</div></section>
+          <section className="tv-panel tv-wallet-panel"><div className="tv-panel-heading"><div><h2>Your wallet</h2><p>Account-specific funds</p></div><span className="tv-wallet-mark"><Wallet size={19}/></span></div><span className="tv-balance-label">AVAILABLE BALANCE</span><strong className="tv-wallet-amount">{money(Number(wallet?.balance_kobo || 0))}</strong><div className="tv-wallet-footer"><span><i/> NGN wallet</span><button onClick={()=>setSection("My wallet")}>Manage <ArrowRight size={14}/></button></div><div className="tv-wallet-info"><ShieldCheck size={16}/><span>Wallet balances change only through verified payment events or audited administrator adjustments.</span></div></section>
+          <section className="tv-panel tv-history-panel"><div className="tv-panel-heading"><div><h2>Recent requests</h2><p>Latest service activity</p></div><button className="tv-text-btn" onClick={()=>setSection("Request history")}>View history <ArrowRight size={14}/></button></div><RequestTable history={history} services={services}/></section>
+          <section className="tv-panel tv-responsibility"><div className="tv-responsibility-mark"><ShieldCheck size={22}/></div><h3>Responsible access, every time.</h3><p>Only request information for a lawful purpose with the data subject’s authorization. TopVerify records request references and limits access to your account.</p><div><span><Check size={14}/> Consent-first workflow</span><span><Check size={14}/> Account review</span><span><Check size={14}/> Private history</span></div></section></div>
         </>}
-        {section === "Identity services" && <><div className="page-heading"><div><div className="eyebrow"><Fingerprint size={13}/> SERVICE CATALOGUE</div><h1>{selected ? selected.title : "Identity services"}</h1><p>{selected ? selected.description : "Choose an available service to start an authorized request."}</p></div>{selected && <button className="button button-outline" onClick={() => setSelected(null)}>Back to services</button>}</div>
-          {selected ? <div className="request-layout"><section className="panel request-panel"><div className="panel-heading"><div><h2>Request details</h2><p>Enter only the information required for your authorized request.</p></div><span className="status status-approved">Secure form</span></div><form onSubmit={submitRequest} className="request-form">{selected.id.includes("phone") ? <Field label="Phone number" value={form.phone} placeholder="e.g. 08012345678" onChange={v => setForm({...form, phone:v})} required /> : <Field label="NIN / reference number" value={form.nin} placeholder="Enter details required by the provider" onChange={v => setForm({...form, nin:v})} required />}{selected.id.includes("demographic") && <div className="field-row"><Field label="First name" value={form.firstName} placeholder="First name" onChange={v=>setForm({...form,firstName:v})} required/><Field label="Last name" value={form.lastName} placeholder="Last name" onChange={v=>setForm({...form,lastName:v})} required/></div>}<label className="consent-check"><input type="checkbox" checked={form.consent} onChange={e=>setForm({...form,consent:e.target.checked})}/><span>I confirm I am authorized to submit this request and have obtained the data subject’s consent where required.</span></label><button className="button button-primary submit-button" type="submit">Submit demo request <ArrowRight size={15}/></button><p className="form-disclaimer"><LockKeyhole size={13}/> Demo only: this form does not retrieve or modify real identity records.</p></form></section><aside className="panel order-panel"><h2>Request summary</h2><div className="summary-service"><div className="service-icon"><selected.icon size={19}/></div><div><strong>{selected.title}</strong><span>{selected.category}</span></div></div><div className="summary-line"><span>Service fee</span><strong>{money(selected.price)}</strong></div><div className="summary-line"><span>Processing</span><strong>Provider-dependent</strong></div><div className="summary-total"><span>Total</span><strong>{money(selected.price)}</strong></div><div className="balance-available"><span>Available wallet balance</span><strong>{money(walletBalance)}</strong></div></aside></div>
-          : <><div className="toolbar"><div className="search-box"><Search size={16}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search services..." /></div><span className="results-count">{filtered.length} services</span></div><div className="catalog-grid">{filtered.map(s=><ServiceTile key={s.id} service={s} onClick={()=>openService(s)} large/> )}</div></>}
+        {section === "Services" && <><div className="tv-page-heading"><div><span className="tv-eyebrow"><Fingerprint size={13}/> SERVICE CATALOGUE</span><h1>{selected ? selected.name : "Identity services"}</h1><p>{selected ? selected.description : "Service fees are set by TopVerify and may differ from upstream provider prices."}</p></div>{selected && <button className="tv-button-secondary" onClick={()=>{setSelected(null);setResult(null);}}>Back to catalogue</button>}</div>
+          {!selected ? <><div className="tv-searchbar"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search available services…"/><span>{filteredServices.length} services</span></div><div className="tv-catalog-grid">{filteredServices.map(service=>{const Icon=serviceIcon(service.id);return <button className="tv-service-card tv-service-card-large" key={service.id} onClick={()=>openService(service)}><div className="tv-service-top"><span className="tv-service-icon"><Icon size={20}/></span><ArrowRight size={15}/></div><strong>{service.name}</strong><p>{service.description}</p><div className="tv-service-bottom"><span>{service.category}</span><b>{money(service.price_kobo)}</b></div></button>})}</div><div className="tv-soft-note"><ShieldCheck size={17}/><span>Validation, clearance and modification workflows remain hidden until their specific authorization, pricing and provider behavior have been reviewed.</span></div></>
+          : <div className="tv-request-layout"><section className="tv-panel tv-request-panel"><div className="tv-panel-heading"><div><h2>Request details</h2><p>Enter only details required for this authorized request.</p></div><span className="tv-secure-label"><ShieldCheck size={14}/> Protected</span></div>
+            {!isApproved ? <div className="tv-locked"><Clock3 size={25}/><h3>Approval required</h3><p>Your account must be approved before live identity requests can be submitted.</p></div> : <form className="tv-form tv-request-form" onSubmit={submitRequest}>
+              {selected.id==="nin-lookup" && <label>NIN<input inputMode="numeric" maxLength={11} required value={fields.nin} onChange={e=>setFields({...fields,nin:e.target.value.replace(/\D/g,"")})} placeholder="Enter 11-digit NIN"/></label>}
+              {selected.id==="phone-lookup" && <label>Phone number<input inputMode="tel" required value={fields.phone} onChange={e=>setFields({...fields,phone:e.target.value})} placeholder="08012345678"/></label>}
+              {(selected.id==="bvn-verify" || selected.id==="bvn-slip") && <label>BVN<input inputMode="numeric" maxLength={11} required value={fields.bvn} onChange={e=>setFields({...fields,bvn:e.target.value.replace(/\D/g,"")})} placeholder="Enter 11-digit BVN"/></label>}
+              {selected.id==="demographic" && <><div className="tv-two-fields"><label>First name<input required value={fields.firstName} onChange={e=>setFields({...fields,firstName:e.target.value})}/></label><label>Last name<input required value={fields.lastName} onChange={e=>setFields({...fields,lastName:e.target.value})}/></label></div><div className="tv-two-fields"><label>Gender<select value={fields.gender} onChange={e=>setFields({...fields,gender:e.target.value})}><option value="m">Male</option><option value="f">Female</option></select></label><label>Date of birth<input required value={fields.dateOfBirth} onChange={e=>setFields({...fields,dateOfBirth:e.target.value})} placeholder="DD-MM-YYYY"/></label></div></>}
+              {(selected.id==="nin-slip" || selected.id==="bvn-slip") && <label>Slip type<select value={fields.slipType} onChange={e=>setFields({...fields,slipType:e.target.value})}><option>Standard Slip</option><option>Premium Slip</option><option>Regular Slip</option><option>Information Slip</option></select></label>}
+              <label className="tv-terms"><input type="checkbox" checked={requestConsent} onChange={e=>setRequestConsent(e.target.checked)}/><span>I confirm I have the data subject’s authorization for this specific request, have explained the purpose, and will only use or share the result for that purpose.</span></label>
+              <button className="tv-primary-btn" disabled={requestLoading}>{requestLoading ? "Submitting securely…" : `Submit request · ${money(selected.price_kobo)}`} <ArrowRight size={17}/></button>
+              <p className="tv-form-footnote"><ShieldCheck size={14}/> TopVerify checks account approval and wallet balance on the server. Your service fee is refunded if a recorded provider failure occurs.</p>
+            </form>}
+          </section><aside className="tv-panel tv-order-panel"><span className="tv-order-eyebrow">REQUEST SUMMARY</span><div className="tv-order-service"><span className="tv-service-icon"><selectedIcon size={21}/></span><div><strong>{selected.name}</strong><span>{selected.category}</span></div></div><div className="tv-order-line"><span>TopVerify service fee</span><strong>{money(selected.price_kobo)}</strong></div><div className="tv-order-line"><span>Provider</span><strong>NINSlip</strong></div><div className="tv-order-total"><span>Total</span><strong>{money(selected.price_kobo)}</strong></div><div className="tv-order-balance"><span>Wallet balance</span><strong>{money(Number(wallet?.balance_kobo || 0))}</strong></div><p className="tv-order-note">Your service fee is set by TopVerify. Upstream provider pricing may differ.</p></aside>
+          {result && <section className="tv-panel tv-result-panel"><div className="tv-panel-heading"><div><h2>Request result</h2><p>Reference: {String(result.reference || "")}</p></div><span className="tv-complete-tag"><Check size={14}/> Completed</span></div>{result.slip && typeof result.slip==="object" && <button className="tv-primary-btn tv-download-btn" onClick={()=>downloadSlip(result.slip as Record<string,unknown>)}><ArrowDownToLine size={17}/> Download provider PDF slip</button>}{result.result && typeof result.result==="object" && <pre className="tv-result-json">{JSON.stringify(result.result,null,2)}</pre>}<p className="tv-form-footnote"><ShieldCheck size={14}/> This is sensitive personal information. Download or share it only for the authorized purpose.</p></section>}
+          </div>}
         </>}
-        {section === "My wallet" && <><div className="page-heading"><div><div className="eyebrow"><Wallet size={13}/> WALLET & PAYMENTS</div><h1>My wallet</h1><p>Manage your workspace funds and view demo wallet activity.</p></div></div><div className="wallet-page-grid"><section className="panel wallet-hero"><span className="wallet-hero-label"><Wallet size={15}/> AVAILABLE BALANCE</span><div className="wallet-hero-amount">{money(walletBalance)}</div><p>NGN · Nigerian naira</p><div className="wallet-hero-actions"><button className="button button-light" onClick={()=>document.getElementById("fund-amount")?.focus()}><ArrowDownLeft size={15}/> Fund wallet</button><button className="button button-translucent" onClick={()=>flash("Withdrawal feature is not enabled in demo mode.")}><ArrowUpRight size={15}/> Withdraw</button></div></section><section className="panel fund-panel"><h2>Fund wallet</h2><p>Enter an amount to preview the funding flow.</p><label className="field-label" htmlFor="fund-amount">Amount (NGN)</label><div className="amount-input"><span>₦</span><input id="fund-amount" value={amount} onChange={e=>setAmount(e.target.value.replace(/[^0-9]/g,""))} inputMode="numeric"/></div><div className="quick-amounts">{["2000","5000","10000","20000"].map(a=><button className={amount===a?"quick-active":""} key={a} onClick={()=>setAmount(a)}>{money(Number(a))}</button>)}</div><button className="button button-primary full-button" onClick={()=>flash("Payment gateway is not connected. No payment has been initiated.")}>Continue to payment <ArrowRight size={15}/></button><p className="form-disclaimer"><LockKeyhole size={13}/> Real funding requires verified payment webhooks.</p></section></div><section className="panel activity-panel standalone-panel"><div className="panel-heading"><div><h2>Recent transactions</h2><p>Wallet ledger preview</p></div></div><ActivityTable/></section></>}
-        {section === "Request history" && <><div className="page-heading"><div><div className="eyebrow"><History size={13}/> REQUEST MANAGEMENT</div><h1>Request history</h1><p>Review request references and demo processing states.</p></div></div><section className="panel activity-panel standalone-panel"><div className="panel-heading"><div><h2>All requests</h2><p>Latest request activity</p></div></div><ActivityTable/></section></>}
-        {section === "Transactions" && <><div className="page-heading"><div><div className="eyebrow"><CreditCard size={13}/> FINANCE</div><h1>Transactions</h1><p>Review your wallet transaction activity.</p></div></div><section className="panel activity-panel standalone-panel"><div className="panel-heading"><div><h2>Transaction history</h2><p>Sample ledger entries</p></div></div><ActivityTable/></section></>}
-        {section === "Agents" && admin && <><div className="page-heading"><div><div className="eyebrow"><Users size={13}/> AGENT MANAGEMENT</div><h1>Agent accounts</h1><p>Review and manage agent access in this local preview.</p></div></div><section className="panel activity-panel"><div className="panel-heading"><div><h2>Agent approval queue</h2><p>Demo records only</p></div></div><div className="agent-list">{Object.entries(agentStatus).map(([name,status])=><div className="agent-row" key={name}><div className="avatar avatar-user">{name.split(" ").map(x=>x[0]).join("")}</div><div className="agent-copy"><strong>{name}</strong><span>Agent account · Nigeria</span></div><span className={`status ${status==="Approved"?"status-approved":status==="Pending"?"status-pending":"status-restricted"}`}>{status}</span><select aria-label={`Change status for ${name}`} value={status} onChange={e=>setAgentStatus({...agentStatus,[name]:e.target.value})}><option>Pending</option><option>Approved</option><option>Restricted</option></select></div>)}</div></section></>}
-        {section === "Service pricing" && admin && <><div className="page-heading"><div><div className="eyebrow"><Settings2 size={13}/> CATALOGUE MANAGEMENT</div><h1>Service pricing</h1><p>Adjust demo prices. Production prices must be validated server-side.</p></div></div><section className="panel pricing-panel"><div className="panel-heading"><div><h2>Service catalogue</h2><p>Prices shown in Nigerian naira</p></div></div>{services.map(s=><div className="price-row" key={s.id}><div className="service-icon"><s.icon size={18}/></div><div className="agent-copy"><strong>{s.title}</strong><span>{s.category}</span></div><label className="price-editor"><span>₦</span><input aria-label={s.title+" price"} type="number" min="0" value={s.price} onChange={e=>setServices(old=>old.map(x=>x.id===s.id?{...x,price:Math.max(0,Number(e.target.value))}:x))}/></label></div>)}</section></>}
-        {section === "Activity logs" && admin && <><div className="page-heading"><div><div className="eyebrow"><Activity size={13}/> SECURITY & AUDIT</div><h1>Activity logs</h1><p>Audit log panel preview for administrator workflows.</p></div></div><section className="panel empty-state"><div className="empty-icon"><ShieldCheck size={24}/></div><h2>No live audit data connected</h2><p>Connect protected server-side audit logging before production use. This panel intentionally shows no real customer records.</p></section></>}
-        {!["Overview","Identity services","My wallet","Request history","Transactions","Agents","Service pricing","Activity logs"].includes(section) && <section className="panel empty-state"><div className="empty-icon"><Boxes size={24}/></div><h2>{section}</h2><p>This section is a starter preview. Connect it to your approved data sources to enable production workflows.</p><button className="button button-primary" onClick={()=>navTo("Overview")}>Back to overview</button></section>}
-      </div><footer className="footer"><span>© 2026 Empire Identity Hub</span><span><ShieldCheck size={13}/> Privacy-first workspace <span className="footer-dot">·</span> Built for authorized use</span></footer>
-    </main>
-    {notice && <div role="status" className="toast"><div className="toast-check"><BadgeCheck size={17}/></div><span>{notice}</span><button aria-label="Dismiss notification" onClick={()=>setNotice("")}><X size={15}/></button></div>}
-  </div>;
+        {section === "Request history" && <><div className="tv-page-heading"><div><span className="tv-eyebrow"><Clock3 size={13}/> AUDITABLE ACTIVITY</span><h1>Request history</h1><p>Your latest identity-service requests and provider references.</p></div><button className="tv-button-primary" onClick={()=>setSection("Services")}><Zap size={16}/> New request</button></div><section className="tv-panel tv-history-panel"><RequestTable history={history} services={services}/></section></>}
+        {section === "My wallet" && <><div className="tv-page-heading"><div><span className="tv-eyebrow"><Wallet size={13}/> WALLET & PAYMENTS</span><h1>My wallet</h1><p>Your balance is held in your dedicated TopVerify wallet.</p></div></div><div className="tv-wallet-page-grid"><section className="tv-wallet-hero"><span><Wallet size={16}/> AVAILABLE BALANCE</span><strong>{money(Number(wallet?.balance_kobo || 0))}</strong><p>NGN · Nigerian naira</p><div><button disabled onClick={()=>flash("Payment gateway setup is required before wallet funding can go live.",true)}>Fund wallet <ArrowRight size={15}/></button><span>Payments not connected yet</span></div></section><section className="tv-panel tv-fund-panel"><h2>Fund your wallet</h2><p>Payment integration will be activated after a provider is configured and webhook verification is tested.</p><label>Amount (NGN)<input value={fundAmount} onChange={e=>setFundAmount(e.target.value.replace(/\D/g,""))} inputMode="numeric" min="500" type="number"/></label><div className="tv-quick-amounts">{["2000","5000","10000","20000"].map(n=><button key={n} className={fundAmount===n?"tv-quick-active":""} onClick={()=>setFundAmount(n)}>{money(Number(n)*100)}</button>)}</div><div className="tv-soft-note"><ShieldCheck size={17}/><span>Wallet credits must only be posted from a verified payment webhook or an audited administrator adjustment. No demo crediting is enabled.</span></div></section></div><section className="tv-panel tv-history-panel"><div className="tv-panel-heading"><div><h2>Recent ledger activity</h2><p>Wallet credits, debits and refunds</p></div></div><LedgerTable userId={user.id}/></section></>}
+        {section === "Agents" && profile?.is_super_admin && <AdminAgents supabase={supabase} onNotice={flash}/>}
+        {section === "Pricing" && profile?.is_super_admin && <AdminPricing supabase={supabase} services={services} onRefresh={()=>user && refreshData(user.id)} onNotice={flash}/>}
+        {profile?.is_super_admin && section === "Overview" && <div className="tv-admin-callout"><Users size={18}/><div><strong>Platform administrator</strong><p>Use Agent oversight to review new agent accounts. Keep approval and pricing changes auditable.</p></div></div>}
+        <footer className="tv-footer"><span>© {new Date().getFullYear()} TopVerify</span><span><ShieldCheck size={13}/> Secure, accountable identity workflows</span><a href="mailto:support@topverify.app">Support</a></footer>
+      </div>
+    </section>
+  </main>;
 }
 
-function Stat({icon:Icon,label,value,trend,tone}:{icon:typeof Wallet;label:string;value:string;trend:string;tone:string}) { return <div className="stat-card"><div className="stat-top"><span>{label}</span><div className={`stat-icon ${tone}`}><Icon size={17}/></div></div><div className="stat-value">{value}</div><div className="stat-trend">{trend}</div></div>; }
-function ServiceTile({service:s,onClick,large=false}:{service:Service;onClick:()=>void;large?:boolean}) { return <button className={`service-tile ${large?"service-tile-large":""}`} onClick={onClick}><div className="service-tile-top"><div className="service-icon"><s.icon size={19}/></div><span className="service-arrow"><ArrowUpRight size={15}/></span></div><strong>{s.title}</strong><p>{s.description}</p><div className="service-tile-bottom"><span className="category-tag">{s.category}</span><strong>{money(s.price)}</strong></div></button>; }
-function Field({label,value,placeholder,onChange,required=false}:{label:string;value:string;placeholder:string;onChange:(v:string)=>void;required?:boolean}) { return <label className="field"><span className="field-label">{label}{required?" *":""}</span><input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} required={required} autoComplete="off"/></label>; }
-function ActivityTable() { const rows=[["NIN Verification","EH-28491","Today, 2:41 PM","Completed","₦350"],["NIN Slip Request","EH-28490","Today, 1:18 PM","Processing","₦1,200"],["BVN Verification","EH-28489","Yesterday","Completed","₦400"],["Demographic Match","EH-28488","Yesterday","Completed","₦500"]]; return <div className="table-scroll"><table className="activity-table"><thead><tr><th>Service</th><th>Reference</th><th>Date</th><th>Status</th><th className="align-right">Amount</th></tr></thead><tbody>{rows.map(r=><tr key={r[1]}><td><strong>{r[0]}</strong></td><td className="ref-cell">{r[1]}</td><td>{r[2]}</td><td><span className={`status ${r[3]==="Completed"?"status-approved":"status-pending"}`}>{r[3]}</span></td><td className="align-right amount-cell">{r[4]}</td></tr>)}</tbody></table></div>; }
+function RequestTable({ history, services }: { history: RequestRow[]; services: Service[] }) {
+  if (!history.length) return <div className="tv-empty"><div><Clock3 size={21}/></div><strong>No requests yet</strong><span>Your completed and failed requests will appear here.</span></div>;
+  return <div className="tv-table-scroll"><table className="tv-table"><thead><tr><th>SERVICE</th><th>REFERENCE</th><th>DATE</th><th>FEE</th><th>STATUS</th></tr></thead><tbody>{history.map(row=><tr key={row.id}><td><strong>{services.find(s=>s.id===row.service_id)?.name || row.service_id}</strong></td><td className="tv-ref">{row.request_reference}</td><td>{dateText(row.created_at)}</td><td>{money(row.fee_kobo)}</td><td><span className={row.status==="completed"?"tv-table-status tv-table-success":row.status==="failed"||row.status==="refunded"?"tv-table-status tv-table-failed":"tv-table-status tv-table-pending"}>{row.status}</span></td></tr>)}</tbody></table></div>;
+}
+
+function LedgerTable({ userId }: { userId: string }) {
+  const [rows, setRows] = useState<Array<{id:string;entry_type:string;amount_kobo:number;description:string;reference:string;created_at:string}>>([]);
+  useEffect(()=>{const client=createClient();client.from("wallet_ledger").select("id,entry_type,amount_kobo,description,reference,created_at").eq("user_id",userId).order("created_at",{ascending:false}).limit(20).then(({data})=>setRows(data||[]));},[userId]);
+  if (!rows.length) return <div className="tv-empty"><div><Wallet size={21}/></div><strong>No wallet activity</strong><span>Verified credits, service debits and refunds will be listed here.</span></div>;
+  return <div className="tv-table-scroll"><table className="tv-table"><thead><tr><th>TYPE</th><th>REFERENCE</th><th>DESCRIPTION</th><th>DATE</th><th>AMOUNT</th></tr></thead><tbody>{rows.map(row=><tr key={row.id}><td>{row.entry_type}</td><td className="tv-ref">{row.reference}</td><td>{row.description}</td><td>{dateText(row.created_at)}</td><td>{money(row.amount_kobo)}</td></tr>)}</tbody></table></div>;
+}
+
+function AdminAgents({ supabase, onNotice }: { supabase: ReturnType<typeof createClient>; onNotice: (message:string,error?:boolean)=>void }) {
+  const [agents,setAgents]=useState<Array<Profile & {email?:string}>>([]);
+  const [busy,setBusy]=useState("");
+  const load=useCallback(async()=>{const {data,error}=await supabase.from("profiles").select("id,full_name,phone,business_name,business_address,intended_use,status,is_super_admin,terms_accepted_at").order("created_at",{ascending:false});if(error)onNotice("Unable to load agent list.",true);else setAgents((data||[]) as Array<Profile & {email?:string}>);},[supabase,onNotice]);
+  useEffect(()=>{void load();},[load]);
+  async function updateStatus(id:string,status:"pending"|"approved"|"restricted"){setBusy(id);const {error}=await supabase.from("profiles").update({status,authorization_reviewed_at:status==="approved"?new Date().toISOString():null}).eq("id",id);if(error)onNotice("Could not update agent status. Confirm administrator permissions.",true);else{onNotice("Agent status updated.");await load();}setBusy("");}
+  return <><div className="tv-page-heading"><div><span className="tv-eyebrow"><Users size={13}/> PLATFORM CONTROL</span><h1>Agent oversight</h1><p>Review onboarding details and approve or restrict agent accounts.</p></div></div><section className="tv-panel tv-admin-list">{agents.map(agent=><div className="tv-admin-agent" key={agent.id}><div className="tv-avatar">{agent.full_name.split(" ").map(x=>x[0]).join("").slice(0,2).toUpperCase()}</div><div className="tv-admin-agent-copy"><strong>{agent.full_name}</strong><span>{agent.phone || "No phone"} · {agent.business_name || "Independent agent"}</span><small>{agent.intended_use || "No intended use provided"}</small></div><span className={"tv-table-status "+(agent.status==="approved"?"tv-table-success":agent.status==="restricted"?"tv-table-failed":"tv-table-pending")}>{agent.status}</span><select value={agent.status} disabled={busy===agent.id || agent.is_super_admin} onChange={e=>void updateStatus(agent.id,e.target.value as "pending"|"approved"|"restricted")}><option value="pending">Pending</option><option value="approved">Approve</option><option value="restricted">Restrict</option></select></div>)}</section></>;
+}
+
+function AdminPricing({ supabase, services, onRefresh, onNotice }: { supabase: ReturnType<typeof createClient>; services: Service[]; onRefresh:()=>void; onNotice:(message:string,error?:boolean)=>void }) {
+  const [prices,setPrices]=useState<Record<string,string>>({});
+  const [busy,setBusy]=useState("");
+  useEffect(()=>setPrices(Object.fromEntries(services.map(s=>[s.id,String(s.price_kobo/100)])),[services]);
+  async function save(service:Service){const value=Number(prices[service.id]);if(!Number.isFinite(value)||value<0){onNotice("Enter a valid non-negative price.",true);return;}setBusy(service.id);const {error}=await supabase.from("services").update({price_kobo:Math.round(value*100),updated_at:new Date().toISOString()}).eq("id",service.id);if(error)onNotice("Could not save price. Confirm admin permissions and database policy.",true);else{onNotice("Price updated.");onRefresh();}setBusy("");}
+  return <><div className="tv-page-heading"><div><span className="tv-eyebrow"><CreditCard size={13}/> PLATFORM CONTROL</span><h1>Service pricing</h1><p>Set TopVerify’s retail fee separately from the upstream provider cost.</p></div></div><section className="tv-panel tv-pricing-list">{services.map(service=><div className="tv-price-row" key={service.id}><div><strong>{service.name}</strong><span>{service.description}</span></div><label>Retail fee (NGN)<input type="number" min="0" value={prices[service.id]??String(service.price_kobo/100)} onChange={e=>setPrices({...prices,[service.id]:e.target.value})}/></label><button disabled={busy===service.id} onClick={()=>void save(service)}>{busy===service.id?"Saving…":"Save price"}</button></div>)}</section></>;
+}
