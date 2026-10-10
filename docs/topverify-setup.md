@@ -11,6 +11,7 @@ Configure these in Vercel Project Settings → Environment Variables for Product
 - `BSC_RPC_URL`: trusted BNB Smart Chain mainnet RPC endpoint (optional; defaults to the public BNB Chain endpoint).
 - `BSC_USDT_TOKEN_ADDRESS`: the independently verified BEP-20 token contract address for the USDT asset you accept. Do not use a token address based only on its displayed symbol.
 - `BSC_USDT_HOT_ADDRESS`: the receiving address for the TopVerify USDT BSC hot wallet. The private key must remain in a separate custody/signing system, never in this app.
+- `BSC_USDT_COLD_ADDRESS`: optional cold reserve address shown in the admin console; deposits are not scanned there by the initial hot-wallet workflow.
 - `BSC_USDT_MIN_CONFIRMATIONS`: required block confirmations; default is 15.
 
 After changing variables, redeploy the project.
@@ -76,6 +77,6 @@ Recording a bank/provider deposit creates a pending record only. It does not cre
 
 ### Transfers and custody
 
-Transfer requests require a second, distinct approved super-admin. Approval changes the request to `approved_to_execute`; it **does not** broadcast a blockchain transaction, instruct a bank, reserve spendable balance, or create a transfer ledger movement. An external custody/signing provider and bank execution/reconciliation integration are still required. Cold-wallet keys must remain offline or in a dedicated custody system; never place private keys in Supabase tables, browser code, GitHub, or ordinary Vercel environment variables.
+Transfer requests require a second, distinct approved super-admin. Pending and approved proposals reserve the requested amount against the source account's ledger balance to prevent over-proposing funds. Approval changes the request to `approved_to_execute`; it **does not** broadcast a blockchain transaction, instruct a bank, or create a transfer ledger movement. An external custody/signing provider and bank execution/reconciliation integration are still required. Cold-wallet keys must remain offline or in a dedicated custody system; never place private keys in Supabase tables, browser code, GitHub, or ordinary Vercel environment variables.
 
 Do not enable production funding or move material funds until token identity, destination addresses, RPC reliability, bank evidence procedures, custody controls, reconciliation, limits and incident response have been tested.
