@@ -45,7 +45,7 @@ where p.id = u.id
   and lower(u.email) = lower('SECOND_ADMIN_EMAIL_HERE');
 ```
 
-Keep this account separate from the treasury requester account. Never share administrator credentials.
+Keep administrator accounts separately controlled, enable MFA, and never share administrator credentials.
 
 ## NINSlip integration
 
