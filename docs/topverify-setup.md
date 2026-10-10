@@ -49,15 +49,7 @@ Keep administrator accounts separately controlled, enable MFA, and never share a
 
 ## NINSlip integration
 
-The server route uses the API key from `NINSLIP_API_KEY` and calls `https://api.ninslip.com` directly. The service catalogue and retail fees are read from Supabase. The current UI exposes these request types:
-
-- NIN verification and phone-based lookup
-- BVN verification
-- Demographic match
-- NIN and BVN PDF slips
-- NIN validation submission
-- IPE clearance submission
-- NIN modification submission
+The server route uses the API key from `NINSLIP_API_KEY` and calls `https://api.ninslip.com` directly. The service catalogue and retail fees are read from Supabase. The UI supports NIN verification, phone-based NIN lookup, tracking-ID verification, BVN verification, demographic match, NIN/BVN/phone-based PDF slips, NIN validation submission, IPE clearance submission and NIN modification submission. Phone-slip generation and tracking-ID verification are seeded as disabled services at zero price until a super-admin sets a positive retail fee and enables them under Service pricing.
 
 The NINSlip documentation describes validation, IPE clearance and modification as accepted asynchronous requests. TopVerify leaves these requests in `processing` after provider acceptance and displays the provider reference; it does not yet poll the provider's status endpoints automatically. Confirm the NINSlip account has permission for each endpoint and verify its current pricing/response behavior in a test account before enabling production use. Only submit identity or modification requests with appropriate authorization and consent.
 
