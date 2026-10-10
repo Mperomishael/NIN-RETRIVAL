@@ -14,7 +14,7 @@ function adminClient() {
   return createSupabaseAdminClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
-function safeServicePayload(serviceId: string, body: Record<string, unknown>): { endpoint: string; payload: Record<string, string> } {
+function safeServicePayload(serviceId: string, body: Record<string, unknown>): { endpoint: string; payload: Record<string, unknown> } {
   const str = (key: string) => typeof body[key] === "string" ? String(body[key]).trim() : "";
   const elevenDigits = (v: string) => /^\d{11}$/.test(v);
   if (serviceId === "nin-lookup") {
@@ -51,6 +51,29 @@ function safeServicePayload(serviceId: string, body: Record<string, unknown>): {
     if (!elevenDigits(str("bvn"))) throw new Error("Enter a valid 11-digit BVN.");
     return { endpoint: "/bvn-slip/", payload: { bvn: str("bvn"), slip_type: str("slipType") || "Standard Slip" } };
   }
+  if (serviceId === "nin-validation") {
+    if (!elevenDigits(str("nin"))) throw new Error("Enter a valid 11-digit NIN.");
+    const errorType = str("errorType");
+    if (!["No Record", "Name Correction", "Date of Birth", "Phone Number", "Other"].includes(errorType)) throw new Error("Choose a valid validation issue.");
+    return { endpoint: "/nin_validation/", payload: { nin: str("nin"), error_type: errorType } };
+  }
+  if (serviceId === "ipe-clearance") {
+    const trackingId = str("trackingId");
+    if (!/^[A-Za-z0-9]{8,32}$/.test(trackingId)) throw new Error("Enter the tracking ID supplied by the identity provider.");
+    return { endpoint: "/ipe_clearance/", payload: { tracking_id: trackingId } };
+  }
+  if (serviceId === "nin-modification") {
+    if (!elevenDigits(str("nin"))) throw new Error("Enter a valid 11-digit NIN.");
+    const fieldCode = str("fieldCode");
+    const modificationValue = str("modificationValue");
+    const reason = str("modificationReason");
+    const labels: Record<string, string> = { "032": "Correct Name", "033": "Phone Number", "034": "Gender", "035": "Date of Birth", "037": "Address" };
+    if (!labels[fieldCode] || !modificationValue || !reason) throw new Error("Complete the modification type, corrected details and reason.");
+    return { endpoint: "/nin_modification/", payload: {
+      nin: str("nin"), field_code: fieldCode,
+      modification_data: { [labels[fieldCode]]: modificationValue, Reason: reason }
+    } };
+  }
   throw new Error("This service is not enabled for live requests yet. Contact TopVerify support.");
 }
 
@@ -83,7 +106,7 @@ export async function POST(request: Request) {
   if (!allowedPurposes.includes(purpose)) return NextResponse.json({ error: "Select a valid purpose for this identity request." }, { status: 400 });
   if (body.consent !== true) return NextResponse.json({ error: "Confirm that you have the data subject’s authorization and consent for this specific request." }, { status: 400 });
 
-  let requestPayload: { endpoint: string; payload: Record<string, string> };
+  let requestPayload: { endpoint: string; payload: Record<string, unknown> };
   try { requestPayload = safeServicePayload(serviceId, body); }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid request details." }, { status: 400 }); }
 
@@ -130,10 +153,28 @@ export async function POST(request: Request) {
     }
 
     const summary = minimalResult(serviceId, response);
+    const providerReference = summary.report_reference || reference;
+    const asyncServices = ["nin-validation", "ipe-clearance", "nin-modification"];
+    if (asyncServices.includes(serviceId)) {
+      // These provider APIs accept a job for later processing; do not label it completed at submission time.
+      await admin.from("identity_requests").update({
+        provider_reference: providerReference,
+        result_payload: summary,
+      }).eq("id", requestId);
+      return NextResponse.json({
+        ok: true,
+        processing: true,
+        reference,
+        providerReference,
+        serviceId,
+        message: String(response.message ?? "The provider accepted your request for processing."),
+        note: "Keep the reference for follow-up. The wallet fee is charged for the provider-accepted submission.",
+      });
+    }
     await admin.rpc("topverify_finalize_request", {
       p_request_id: requestId,
       p_status: "completed",
-      p_provider_reference: summary.report_reference || reference,
+      p_provider_reference: providerReference,
       p_result_summary: summary,
       p_error_code: null,
     });
