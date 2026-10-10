@@ -34,7 +34,20 @@ where p.id = u.id
 
 3. Sign out and sign back in. The owner account should then show Agent oversight and Service pricing.
 
-Do not put administrator privileges in the public signup form.
+Do not put administrator privileges in the public signup form. For dual-control operations, provision a second, separately controlled administrator only after verifying their identity and enabling MFA. Run this in Supabase SQL Editor with their exact registered email:
+
+```sql
+update public.profiles p
+set is_super_admin = true,
+    status = 'approved',
+    authorization_reviewed_at = now(),
+    updated_at = now()
+from auth.users u
+where p.id = u.id
+  and lower(u.email) = lower('SECOND_ADMIN_EMAIL_HERE');
+```
+
+Keep this account separate from the treasury requester account. Never share administrator credentials.
 
 ## NINSlip integration
 
