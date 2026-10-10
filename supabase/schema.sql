@@ -109,6 +109,12 @@ insert into public.services(id,name,description,category,price_kobo) values
 ('nin-modification','NIN Modification','Start an eligible demographic update request','Special services',200000)
 on conflict(id) do nothing;
 
+-- Additional documented NINSlip endpoints stay hidden until an administrator sets retail pricing.
+insert into public.services(id,name,description,category,price_kobo,enabled,requires_manual_review) values
+('phone-slip','Phone NIN Slip Generation','Generate an eligible NIN slip using an authorized phone-number request','Documents',0,false,false),
+('tracking-id-lookup','Tracking ID Verification','Verify an eligible identity record using its provider-issued tracking ID','Verification',0,false,false)
+on conflict(id) do nothing;
+
 -- Apply this schema only after review. To bootstrap the first administrator:
 -- UPDATE public.profiles SET is_super_admin=true,status='approved',authorization_reviewed_at=now() WHERE id='VERIFIED_AUTH_USER_UUID';
 -- Never expose admin assignment in a public signup form. Store only minimal identity data with appropriate encryption and retention.
