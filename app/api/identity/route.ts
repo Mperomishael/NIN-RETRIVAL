@@ -14,7 +14,7 @@ function adminClient() {
   return createSupabaseAdminClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
-function safeServicePayload(serviceId: string, body: Record<string, unknown>) {
+function safeServicePayload(serviceId: string, body: Record<string, unknown>): { endpoint: string; payload: Record<string, string> } {
   const str = (key: string) => typeof body[key] === "string" ? String(body[key]).trim() : "";
   const elevenDigits = (v: string) => /^\d{11}$/.test(v);
   if (serviceId === "nin-lookup") {
@@ -22,8 +22,8 @@ function safeServicePayload(serviceId: string, body: Record<string, unknown>) {
     return { endpoint: "/nin/", payload: { number: str("nin") } };
   }
   if (serviceId === "phone-lookup") {
-    const phone = str("phone").replace(/[\\s-]/g, "");
-    if (!/^(0\\d{10}|234\\d{10}|\\+234\\d{10})$/.test(phone)) throw new Error("Enter a valid Nigerian phone number.");
+    const phone = str("phone").replace(/[\s-]/g, "");
+    if (!/^(0\d{10}|234\d{10}|\+234\d{10})$/.test(phone)) throw new Error("Enter a valid Nigerian phone number.");
     const normalizedPhone = phone.startsWith("+234") ? "0" + phone.slice(4) : phone.startsWith("234") ? "0" + phone.slice(3) : phone;
     return { endpoint: "/phone/", payload: { number: normalizedPhone } };
   }
