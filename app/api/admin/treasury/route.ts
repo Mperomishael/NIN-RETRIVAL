@@ -107,7 +107,7 @@ export async function GET() {
     const signed = Number(entry.amount) * (entry.direction === "credit" ? 1 : -1);
     balances.set(entry.account_id, (balances.get(entry.account_id) || 0) + signed);
   }
-  const accounts = (accountsResult.data || []).map(a=>({...a,ledger_balance:balances.get(a.id)||0}));
+  const accounts = (accountsResult.data || []).map(a=>({...a,address:a.code==="USDT_BSC_HOT"?(process.env.BSC_USDT_HOT_ADDRESS||a.address):a.code==="USDT_BSC_COLD"?(process.env.BSC_USDT_COLD_ADDRESS||a.address):a.address,ledger_balance:balances.get(a.id)||0}));
   return NextResponse.json({ accounts, pendingDeposits:depositsResult.data||[], transfers:transfersResult.data||[], custodyExecutionConfigured:false });
 }
 
@@ -185,9 +185,7 @@ export async function POST(request: Request) {
     return NextResponse.json({error:"Unsupported treasury action."},{status:400});
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    if (message.includes("BSC RPC") || message.includes("BSC mainnet") || message.includes("USDT deposit verification") || message.includes("confirmations") || message.includes("Transaction") || message.includes("transfer of the configured token")) {
-      return NextResponse.json({error:message},{status:422});
-    }
+    if (message) return NextResponse.json({error:message},{status:422});
     return NextResponse.json({error:"Treasury operation failed safely. Check the record and audit trail before retrying."},{status:500});
   }
 }
