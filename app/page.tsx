@@ -2,10 +2,9 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Activity, ArrowDownToLine, ArrowRight, BadgeCheck, Bell, Check, ChevronRight,
-  CircleHelp, Clock3, CreditCard, FileCheck2, Fingerprint, Home, LogOut, Menu,
-  Search, ShieldCheck, Smartphone, UserRound, Users, Wallet, X, Zap
-} from "lucide-react";
+  Activity, ArrowDownToLine, ArrowLeft, ArrowRight, ArrowUpRight, BadgeCheck, Bell, Building2, Check, ChevronRight,
+  CircleHelp, Clock3, CreditCard, FileCheck2, FilePenLine, FileSearch, Fingerprint, Home, IdCard, Landmark, LogOut, Menu,
+  ScanFace, Search, ShieldCheck, Smartphone, UserRound, UserRoundCheck, Users, Wallet, X, Zap} from "lucide-react";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 type Profile = {
@@ -16,12 +15,10 @@ type Profile = {
 type Service = { id: string; name: string; description: string; category: string; price_kobo: number; enabled: boolean };
 type WalletRow = { balance_kobo: number; currency: string };
 type RequestRow = { id: string; service_id: string; status: string; fee_kobo: number; request_reference: string; created_at: string };
-type RequestFields = { nin: string; phone: string; bvn: string; firstName: string; lastName: string; gender: string; dateOfBirth: string; slipType: string };
-
-const liveServices = ["nin-lookup", "phone-lookup", "bvn-verify", "demographic", "nin-slip", "bvn-slip"];
+type RequestFields = { nin: string; phone: string; bvn: string; firstName: string; lastName: string; gender: string; dateOfBirth: string; slipType: string; trackingId: string; errorType: string; fieldCode: string; modificationValue: string; modificationReason: string };
 const money = (kobo: number) => new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 0 }).format(kobo / 100);
 const dateText = (value: string) => new Date(value).toLocaleString("en-NG", { dateStyle: "medium", timeStyle: "short" });
-const emptyFields: RequestFields = { nin: "", phone: "", bvn: "", firstName: "", lastName: "", gender: "m", dateOfBirth: "", slipType: "Standard Slip" };
+const emptyFields: RequestFields = { nin: "", phone: "", bvn: "", firstName: "", lastName: "", gender: "m", dateOfBirth: "", slipType: "Standard Slip", trackingId: "", errorType: "No Record", fieldCode: "032", modificationValue: "", modificationReason: "" };
 
 export default function DashboardPage() {
   const [supabase] = useState(() => createClient());
@@ -32,6 +29,13 @@ export default function DashboardPage() {
   const [history, setHistory] = useState<RequestRow[]>([]);
   const [section, setSection] = useState("Overview");
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
+  const [showAuth, setShowAuth] = useState(false);
+  const [landingServices, setLandingServices] = useState<Service[]>([
+    { id: "nin-lookup", name: "NIN Verification", description: "Verify identity details with an authorized request.", category: "Verification", price_kobo: 35000, enabled: true },
+    { id: "bvn-verify", name: "BVN Verification", description: "Validate a BVN for an authorized workflow.", category: "Verification", price_kobo: 40000, enabled: true },
+    { id: "nin-slip", name: "NIN Slip Generation", description: "Request an eligible NIN document.", category: "Documents", price_kobo: 120000, enabled: true },
+    { id: "ipe-clearance", name: "IPE Clearance", description: "Submit an eligible clearance request.", category: "Clearance", price_kobo: 150000, enabled: true },
+  ]);
   const [authLoading, setAuthLoading] = useState(false);
   const [requestLoading, setRequestLoading] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
@@ -65,7 +69,7 @@ export default function DashboardPage() {
     ]);
     if (p.data) setProfile(p.data as Profile);
     if (w.data) setWallet(w.data as WalletRow);
-    if (s.data) setServices((s.data as Service[]).filter(item => liveServices.includes(item.id)));
+    if (s.data) setServices(s.data as Service[]);
     if (h.data) setHistory(h.data as RequestRow[]);
   }, [supabase]);
 
@@ -102,8 +106,32 @@ export default function DashboardPage() {
     window.history.replaceState({}, "", window.location.pathname);
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    const loadPublicServices = async () => {
+      try {
+        const response = await fetch("/api/services", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (active && Array.isArray(payload.services)) setLandingServices(payload.services);
+      } catch { /* Keep the display catalogue available during a brief network interruption. */ }
+    };
+    void loadPublicServices();
+    const interval = window.setInterval(() => { if (document.visibilityState === "visible") void loadPublicServices(); }, 30000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, []);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const sync = () => { if (document.visibilityState === "visible") void refreshData(user.id); };
+    const interval = window.setInterval(sync, 15000);
+    window.addEventListener("focus", sync);
+    document.addEventListener("visibilitychange", sync);
+    return () => { window.clearInterval(interval); window.removeEventListener("focus", sync); document.removeEventListener("visibilitychange", sync); };
+  }, [user?.id, refreshData]);
+
   const filteredServices = useMemo(() => services.filter(s => (s.name + " " + s.description + " " + s.category).toLowerCase().includes(query.toLowerCase())), [services, query]);
-  const serviceIcon = (id: string) => id.includes("phone") ? Smartphone : id.includes("slip") ? FileCheck2 : id.includes("bvn") ? ShieldCheck : Fingerprint;
+  const serviceIcon = (id: string) => id === "ipe-clearance" ? BadgeCheck : id === "nin-validation" ? FileSearch : id === "nin-modification" ? FilePenLine : id === "demographic" ? UserRoundCheck : id.includes("phone") ? Smartphone : id.includes("slip") ? FileCheck2 : id.includes("bvn") ? IdCard : Fingerprint;
 
   async function handleAuth(event: FormEvent) {
     event.preventDefault();
@@ -205,6 +233,38 @@ export default function DashboardPage() {
 
   if (checking) return <main className="tv-loading"><div className="tv-orbit"><Fingerprint size={30}/></div><strong>TopVerify</strong><span>Preparing your secure workspace…</span></main>;
 
+  if (!user && !showAuth) return <main className="tv-landing">
+    <header className="tv-landing-nav">
+      <a className="tv-landing-brand" href="/" aria-label="TopVerify home"><span className="tv-landing-mark"><Fingerprint size={24}/></span><span><strong>TopVerify</strong><small>IDENTITY OPERATIONS</small></span></a>
+      <nav aria-label="Main navigation"><a href="#services">Services</a><a href="#how-it-works">How it works</a><a href="#for-agents">For agents</a></nav>
+      <div className="tv-landing-actions"><button className="tv-nav-signin" onClick={()=>{setAuthMode("signin");setShowAuth(true);setNotice("");}}>Sign in</button><button className="tv-nav-join" onClick={()=>{setAuthMode("signup");setIntendedUse("Professional agent / reseller services");setShowAuth(true);setNotice("");}}>Join as an agent <ArrowUpRight size={15}/></button></div>
+    </header>
+    <section className="tv-landing-hero">
+      <div className="tv-landing-copy">
+        <div className="tv-landing-kicker"><span/> IDENTITY WORKFLOWS, BUILT FOR REAL BUSINESS</div>
+        <h1>Identity operations.<br/><em>Handled with clarity.</em></h1>
+        <p className="tv-landing-lede">A considered workspace for authorized identity checks, document requests and clearance workflows — with transparent pricing and one account balance.</p>
+        <div className="tv-landing-cta"><button className="tv-hero-primary" onClick={()=>{setAuthMode("signup");setIntendedUse("Customer onboarding and identity verification with consent");setShowAuth(true);setNotice("");}}>Start retrieving <ArrowRight size={17}/></button><button className="tv-hero-secondary" onClick={()=>{setAuthMode("signup");setIntendedUse("Professional agent / reseller services");setShowAuth(true);setNotice("");}}><Building2 size={17}/> Sign up as agent</button></div>
+        <div className="tv-landing-assurance"><span><ShieldCheck size={16}/> Consent-led access</span><span><Wallet size={16}/> Wallet-backed requests</span><span><Activity size={16}/> Traceable activity</span></div>
+      </div>
+      <div className="tv-landing-visual" role="img" aria-label="Professional identity verification workspace">
+        <div className="tv-visual-wash"/>
+        <div className="tv-visual-label"><span className="tv-visual-live"/> WORKSPACE / 01 <span>TOPVERIFY</span></div>
+        <div className="tv-id-card"><div className="tv-id-top"><span className="tv-id-emblem"><Fingerprint size={18}/></span><span>IDENTITY RECORD</span><BadgeCheck size={17}/></div><div className="tv-id-main"><div className="tv-id-portrait"><ScanFace size={46}/></div><div><small>SECURE REQUEST</small><strong>Identity verification</strong><span>Consent and purpose recorded</span></div></div><div className="tv-id-lines"><i/><i/><i/></div><div className="tv-id-foot"><span>REFERENCE-READY</span><ShieldCheck size={15}/></div></div>
+        <div className="tv-float-note"><span><Check size={14}/></span><div><strong>One connected workflow</strong><small>Wallet · Request · Record</small></div></div>
+        <div className="tv-visual-caption"><span>DESIGNED FOR PROFESSIONAL USE</span><span>NG / 01</span></div>
+      </div>
+    </section>
+    <div className="tv-landing-metrics"><div><strong>One wallet</strong><span>Fund once, use across enabled services</span></div><div><strong>Clear pricing</strong><span>Retail fees shown before submission</span></div><div><strong>Accountable access</strong><span>Approval and purpose-specific consent</span></div></div>
+    <section className="tv-landing-services" id="services"><div className="tv-landing-section-head"><div><span className="tv-landing-overline">SERVICE DIRECTORY</span><h2>Built around the work<br/>you need to get done.</h2></div><p>Explore available identity workflows. Services requiring provider approval or additional details are clearly identified before you submit a request.</p></div>
+      <div className="tv-landing-service-grid">{landingServices.slice(0,6).map(service=>{const Icon=service.id==="ipe-clearance"?BadgeCheck:service.id==="nin-validation"?FileSearch:service.id==="nin-modification"?FilePenLine:service.id.includes("slip")?FileCheck2:service.id.includes("bvn")?IdCard:service.id.includes("phone")?Smartphone:service.id==="demographic"?UserRoundCheck:Fingerprint;return <article className="tv-landing-service" key={service.id}><div className="tv-landing-service-top"><span><Icon size={20}/></span><small>{service.category}</small></div><h3>{service.name}</h3><p>{service.description}</p><div><strong>{money(service.price_kobo)}</strong><button aria-label={"Start "+service.name} onClick={()=>{setAuthMode("signup");setIntendedUse("Customer onboarding and identity verification with consent");setShowAuth(true);}}>Get started <ArrowUpRight size={15}/></button></div></article>})}</div>
+      <div className="tv-catalog-footnote"><ShieldCheck size={16}/> Prices shown are the current TopVerify retail fees. Final access depends on account approval, provider availability and lawful authorization.</div>
+    </section>
+    <section className="tv-landing-how" id="how-it-works"><div><span className="tv-landing-overline">A STRAIGHTFORWARD PROCESS</span><h2>From funding to<br/>finished request.</h2><p>Built to keep the important details visible, without making everyday tasks complicated.</p><button className="tv-hero-secondary" onClick={()=>{setAuthMode("signup");setShowAuth(true);}}>Create your account <ArrowRight size={16}/></button></div><div className="tv-step-list"><article><span>01</span><div><h3>Create your account</h3><p>Register with your details and complete the account review process.</p></div><UserRound size={20}/></article><article><span>02</span><div><h3>Fund your TopVerify wallet</h3><p>Pay securely through Flutterwave. Verified payments update your wallet ledger.</p></div><Wallet size={20}/></article><article><span>03</span><div><h3>Choose an enabled service</h3><p>Review the fee, provide required details and confirm authorization.</p></div><Fingerprint size={20}/></article><article><span>04</span><div><h3>Track the outcome</h3><p>Follow request references and see debits or refunds in your history.</p></div><Activity size={20}/></article></div></section>
+    <section className="tv-agent-band" id="for-agents"><div className="tv-agent-band-icon"><Landmark size={24}/></div><div><span className="tv-landing-overline">FOR PROFESSIONAL AGENTS</span><h2>Your services. One operational workspace.</h2><p>Manage approved identity workflows, keep a funded wallet and see your activity in one place.</p></div><button onClick={()=>{setAuthMode("signup");setIntendedUse("Professional agent / reseller services");setShowAuth(true);}}>Register as an agent <ArrowRight size={16}/></button></section>
+    <footer className="tv-landing-footer"><a className="tv-landing-brand" href="/"><span className="tv-landing-mark"><Fingerprint size={22}/></span><span><strong>TopVerify</strong><small>IDENTITY OPERATIONS</small></span></a><span>Purpose-led identity services for authorized use.</span><div><a href="/privacy">Privacy</a><a href="/acceptable-use">Acceptable use</a><button onClick={()=>{setAuthMode("signin");setShowAuth(true);}}>Sign in</button></div></footer>
+  </main>;
+
   if (!user) return <main className="tv-auth-shell">
     <div className="tv-auth-art">
       <div className="tv-orb tv-orb-one"/><div className="tv-orb tv-orb-two"/>
@@ -217,9 +277,10 @@ export default function DashboardPage() {
     <div className="tv-auth-panel">
       <div className="tv-auth-mobile-brand"><div className="tv-brand-mark"><Fingerprint size={23}/></div><strong>TopVerify</strong></div>
       <div className="tv-auth-form-wrap">
-        <span className="tv-form-eyebrow">{authMode === "signin" ? "AGENT WORKSPACE" : "NEW AGENT ENROLMENT"}</span>
-        <h2>{authMode === "signin" ? "Welcome back." : "Create your workspace."}</h2>
-        <p className="tv-muted">{authMode === "signin" ? "Sign in to manage your identity requests and wallet." : "Submit your details for review. Live services remain locked until approval."}</p>
+        <button className="tv-back-home" type="button" onClick={()=>{setShowAuth(false);setNotice("");}}><ArrowLeft size={15}/> Back to TopVerify</button>
+        <span className="tv-form-eyebrow">{authMode === "signin" ? "SECURE WORKSPACE" : intendedUse === "Professional agent / reseller services" ? "AGENT ENROLMENT" : "CUSTOMER ACCOUNT"}</span>
+        <h2>{authMode === "signin" ? "Welcome back." : "Create your account."}</h2>
+        <p className="tv-muted">{authMode === "signin" ? "Sign in to manage your identity requests and wallet." : "Register to get started. Live identity services unlock after account review."}</p>
         <form onSubmit={handleAuth} className="tv-form">
           {authMode === "signup" && <>
             <label>Full name<input required autoComplete="name" value={fullName} onChange={e=>setFullName(e.target.value)} placeholder="Your legal name"/></label>
@@ -231,7 +292,7 @@ export default function DashboardPage() {
           <label>Password<input required minLength={8} type="password" autoComplete={authMode === "signin" ? "current-password" : "new-password"} value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 8 characters"/></label>
           {authMode === "signup" && <label className="tv-terms"><input type="checkbox" checked={acceptedTerms} onChange={e=>setAcceptedTerms(e.target.checked)}/><span>I agree to TopVerify’s <a href="/acceptable-use" target="_blank" rel="noreferrer">acceptable-use rules</a> and <a href="/privacy" target="_blank" rel="noreferrer">privacy notice</a>. I will only request identity information for a lawful, disclosed purpose with the data subject’s authorization; I will not use or disclose it for fraud, harassment, discrimination, impersonation, or any other misuse.</span></label>}
           {notice && <div className={noticeError ? "tv-alert tv-alert-error" : "tv-alert"}>{notice}</div>}
-          <button className="tv-primary-btn" disabled={authLoading}>{authLoading ? "Please wait…" : authMode === "signin" ? "Sign in securely" : "Submit for review"} <ArrowRight size={17}/></button>
+          <button className="tv-primary-btn" disabled={authLoading}>{authLoading ? "Please wait…" : authMode === "signin" ? "Sign in securely" : "Create account"} <ArrowRight size={17}/></button>
         </form>
         <div className="tv-auth-switch">{authMode === "signin" ? "New to TopVerify?" : "Already have an account?"} <button onClick={()=>{setAuthMode(authMode==="signin"?"signup":"signin");setNotice("");}}>{authMode === "signin" ? "Create agent account" : "Sign in instead"}</button></div>
         <div className="tv-privacy-note"><ShieldCheck size={15}/><span>Identity data is sensitive. Your access is subject to account approval, service permissions and purpose-specific consent.</span></div>
@@ -260,7 +321,7 @@ export default function DashboardPage() {
         {notice && <div className={noticeError ? "tv-toast tv-toast-error" : "tv-toast"}><span>{noticeError ? <X size={16}/> : <Check size={16}/>}</span>{notice}<button onClick={()=>setNotice("")} aria-label="Dismiss"><X size={15}/></button></div>}
         {!isApproved && <div className="tv-review-banner"><Clock3 size={19}/><div><strong>Your account is awaiting review</strong><p>Your KYC details have been submitted. Identity requests remain locked until TopVerify approves your account.</p></div><span>Pending</span></div>}
         {section === "Overview" && !selected && <>
-          <div className="tv-page-heading"><div><span className="tv-eyebrow"><Zap size={13}/> YOUR IDENTITY WORKSPACE</span><h1>Good to see you, {(profile?.full_name || "Agent").split(" ")[0]} <span>✦</span></h1><p>One place for your identity workflows, wallet and request history.</p></div><button className="tv-button-primary" onClick={()=>{setSection("Services");setSelected(null);}}><Zap size={16}/> New request</button></div>
+          <div className="tv-page-heading"><div><span className="tv-eyebrow"><Zap size={13}/> YOUR IDENTITY WORKSPACE</span><h1>Good to see you, {(profile?.full_name || "Agent").split(" ")[0]}</h1><p>One place for your identity workflows, wallet and request history.</p></div><button className="tv-button-primary" onClick={()=>{setSection("Services");setSelected(null);}}><Zap size={16}/> New request</button></div>
           <div className="tv-stat-grid"><div className="tv-stat-card"><div><span>Available balance</span><div className="tv-stat-icon tv-blue"><Wallet size={18}/></div></div><strong>{money(Number(wallet?.balance_kobo || 0))}</strong><small>Dedicated agent wallet</small></div><div className="tv-stat-card"><div><span>Total requests shown</span><div className="tv-stat-icon tv-purple"><Activity size={18}/></div></div><strong>{history.length}</strong><small>Recent account activity</small></div><div className="tv-stat-card"><div><span>Account status</span><div className="tv-stat-icon tv-green"><ShieldCheck size={18}/></div></div><strong className="tv-status-word">{profile?.status || "Pending"}</strong><small>{isApproved ? "Live services enabled" : "Awaiting admin review"}</small></div><div className="tv-stat-card"><div><span>Available services</span><div className="tv-stat-icon tv-amber"><Fingerprint size={18}/></div></div><strong>{services.length}</strong><small>Provider-enabled catalogue</small></div></div>
           <div className="tv-home-grid"><section className="tv-panel tv-service-panel"><div className="tv-panel-heading"><div><h2>Start with a service</h2><p>Choose a verified workflow for an authorized request.</p></div><button className="tv-text-btn" onClick={()=>setSection("Services")}>All services <ArrowRight size={14}/></button></div><div className="tv-service-grid">{services.slice(0,4).map(service=>{const Icon=serviceIcon(service.id);return <button className="tv-service-card" key={service.id} onClick={()=>openService(service)}><div className="tv-service-top"><span className="tv-service-icon"><Icon size={20}/></span><ArrowRight size={15}/></div><strong>{service.name}</strong><p>{service.description}</p><div className="tv-service-bottom"><span>{service.category}</span><b>{money(service.price_kobo)}</b></div></button>})}</div></section>
           <section className="tv-panel tv-wallet-panel"><div className="tv-panel-heading"><div><h2>Your wallet</h2><p>Account-specific funds</p></div><span className="tv-wallet-mark"><Wallet size={19}/></span></div><span className="tv-balance-label">AVAILABLE BALANCE</span><strong className="tv-wallet-amount">{money(Number(wallet?.balance_kobo || 0))}</strong><div className="tv-wallet-footer"><span><i/> NGN wallet</span><button onClick={()=>setSection("My wallet")}>Manage <ArrowRight size={14}/></button></div><div className="tv-wallet-info"><ShieldCheck size={16}/><span>Wallet balances change only through verified payment events or audited administrator adjustments.</span></div></section>
@@ -274,6 +335,9 @@ export default function DashboardPage() {
               {selected.id==="nin-lookup" && <label>NIN<input inputMode="numeric" maxLength={11} required value={fields.nin} onChange={e=>setFields({...fields,nin:e.target.value.replace(/\D/g,"")})} placeholder="Enter 11-digit NIN"/></label>}
               {selected.id==="phone-lookup" && <label>Phone number<input inputMode="tel" required value={fields.phone} onChange={e=>setFields({...fields,phone:e.target.value})} placeholder="08012345678"/></label>}
               {(selected.id==="bvn-verify" || selected.id==="bvn-slip") && <label>BVN<input inputMode="numeric" maxLength={11} required value={fields.bvn} onChange={e=>setFields({...fields,bvn:e.target.value.replace(/\D/g,"")})} placeholder="Enter 11-digit BVN"/></label>}
+              {selected.id==="ipe-clearance" && <label>Tracking ID<input required value={fields.trackingId} onChange={e=>setFields({...fields,trackingId:e.target.value.trim()})} placeholder="Enter the provider tracking ID"/></label>}
+              {selected.id==="nin-validation" && <><label>NIN<input inputMode="numeric" maxLength={11} required value={fields.nin} onChange={e=>setFields({...fields,nin:e.target.value.replace(/\D/g,"")})} placeholder="Enter 11-digit NIN"/></label><label>Validation issue<select value={fields.errorType} onChange={e=>setFields({...fields,errorType:e.target.value})}><option>No Record</option><option>Name Correction</option><option>Date of Birth</option><option>Phone Number</option><option>Other</option></select></label></>}
+              {selected.id==="nin-modification" && <><label>NIN<input inputMode="numeric" maxLength={11} required value={fields.nin} onChange={e=>setFields({...fields,nin:e.target.value.replace(/\D/g,"")})} placeholder="Enter 11-digit NIN"/></label><label>Modification type<select value={fields.fieldCode} onChange={e=>setFields({...fields,fieldCode:e.target.value,modificationValue:""})}><option value="032">Correction of name</option><option value="033">Phone number update</option><option value="034">Gender update</option><option value="035">Date of birth correction (subject to provider rules)</option><option value="037">Residential address update</option></select></label><label>{fields.fieldCode==="032"?"Correct full name":fields.fieldCode==="033"?"Correct phone number":fields.fieldCode==="034"?"Correct gender":fields.fieldCode==="035"?"Correct date of birth":"Correct residential address"}<input required value={fields.modificationValue} onChange={e=>setFields({...fields,modificationValue:e.target.value})} placeholder="Enter the correct details"/></label><label>Reason for correction<input required value={fields.modificationReason} onChange={e=>setFields({...fields,modificationReason:e.target.value})} placeholder="Briefly explain the correction"/></label></>}
               {selected.id==="demographic" && <><div className="tv-two-fields"><label>First name<input required value={fields.firstName} onChange={e=>setFields({...fields,firstName:e.target.value})}/></label><label>Last name<input required value={fields.lastName} onChange={e=>setFields({...fields,lastName:e.target.value})}/></label></div><div className="tv-two-fields"><label>Gender<select value={fields.gender} onChange={e=>setFields({...fields,gender:e.target.value})}><option value="m">Male</option><option value="f">Female</option></select></label><label>Date of birth<input required value={fields.dateOfBirth} onChange={e=>setFields({...fields,dateOfBirth:e.target.value})} placeholder="DD-MM-YYYY"/></label></div></>}
               {(selected.id==="nin-slip" || selected.id==="bvn-slip") && <label>Slip type<select value={fields.slipType} onChange={e=>setFields({...fields,slipType:e.target.value})}><option>Standard Slip</option><option>Premium Slip</option><option>Regular Slip</option><option>Information Slip</option></select></label>}
               <label>Purpose for this request<select required value={requestPurpose} onChange={e=>setRequestPurpose(e.target.value)}><option>Customer onboarding / KYC with consent</option><option>Data subject requested their own record</option><option>Compliance verification with lawful basis</option></select></label>
@@ -282,7 +346,7 @@ export default function DashboardPage() {
               <p className="tv-form-footnote"><ShieldCheck size={14}/> TopVerify checks account approval and wallet balance on the server. Your service fee is refunded if a recorded provider failure occurs.</p>
             </form>}
           </section><aside className="tv-panel tv-order-panel"><span className="tv-order-eyebrow">REQUEST SUMMARY</span><div className="tv-order-service"><span className="tv-service-icon"><SelectedIcon size={21}/></span><div><strong>{selected.name}</strong><span>{selected.category}</span></div></div><div className="tv-order-line"><span>TopVerify service fee</span><strong>{money(selected.price_kobo)}</strong></div><div className="tv-order-line"><span>Provider</span><strong>NINSlip</strong></div><div className="tv-order-total"><span>Total</span><strong>{money(selected.price_kobo)}</strong></div><div className="tv-order-balance"><span>Wallet balance</span><strong>{money(Number(wallet?.balance_kobo || 0))}</strong></div><p className="tv-order-note">Your service fee is set by TopVerify. Upstream provider pricing may differ.</p></aside>
-          {result && <section className="tv-panel tv-result-panel"><div className="tv-panel-heading"><div><h2>Request result</h2><p>Reference: {String(result.reference || "")}</p></div><span className="tv-complete-tag"><Check size={14}/> Completed</span></div>{result.slip !== null && typeof result.slip === "object" ? <button className="tv-primary-btn tv-download-btn" onClick={()=>downloadSlip(result.slip as Record<string,unknown>)}><ArrowDownToLine size={17}/> Download provider PDF slip</button> : null}{result.result !== null && typeof result.result === "object" ? <pre className="tv-result-json">{JSON.stringify(result.result,null,2)}</pre> : null}<p className="tv-form-footnote"><ShieldCheck size={14}/> This is sensitive personal information. Download or share it only for the authorized purpose.</p></section>}
+          {result && <section className="tv-panel tv-result-panel"><div className="tv-panel-heading"><div><h2>{result.processing ? "Request submitted" : "Request result"}</h2><p>Reference: {String(result.reference || "")}</p></div><span className={result.processing ? "tv-table-status tv-table-pending" : "tv-complete-tag"}>{result.processing ? "Processing" : <><Check size={14}/> Completed</>}</span></div>{result.message && <p>{String(result.message)}</p>}{result.processing && <p className="tv-form-footnote">The provider accepted this request. It may take time to complete; keep the reference for follow-up. Your wallet fee has been charged for the accepted submission.</p>}{result.slip !== null && typeof result.slip === "object" ? <button className="tv-primary-btn tv-download-btn" onClick={()=>downloadSlip(result.slip as Record<string,unknown>)}><ArrowDownToLine size={17}/> Download provider PDF slip</button> : null}{result.result !== null && typeof result.result === "object" ? <pre className="tv-result-json">{JSON.stringify(result.result,null,2)}</pre> : null}<p className="tv-form-footnote"><ShieldCheck size={14}/> This is sensitive personal information. Download or share it only for the authorized purpose.</p></section>}
           </div>}
         </>}
         {section === "Request history" && <><div className="tv-page-heading"><div><span className="tv-eyebrow"><Clock3 size={13}/> AUDITABLE ACTIVITY</span><h1>Request history</h1><p>Your latest identity-service requests and provider references.</p></div><button className="tv-button-primary" onClick={()=>setSection("Services")}><Zap size={16}/> New request</button></div><section className="tv-panel tv-history-panel"><RequestTable history={history} services={services}/></section></>}
