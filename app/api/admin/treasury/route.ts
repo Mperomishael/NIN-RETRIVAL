@@ -126,18 +126,15 @@ export async function POST(request: Request) {
       if (externalReference.length < 5 || externalReference.length > 180 || evidenceReference.length < 5 || evidenceReference.length > 500) {
         return NextResponse.json({ error: "Enter a bank/provider reference and an evidence reference of at least 5 characters." }, { status: 400 });
       }
-      const { data: account, error: accountError } = await admin.from("treasury_accounts").select("id").eq("code","NGN_HOT").eq("is_active",true).single();
-      if (accountError || !account) return NextResponse.json({ error: "NGN operating treasury is not configured." }, { status: 503 });
-      const { error } = await admin.from("treasury_deposits").insert({
-        account_id:account.id,asset:"NGN",network:"NGN_BANK",amount,external_reference,status:"pending_review",
-        submitted_by:actorId,evidence_reference,metadata:{ submitted_via:"admin_console", note:String(body.note||"").slice(0,300) }
+      const { data, error } = await admin.rpc("topverify_admin_record_ngn_deposit",{
+        p_amount:amount,p_external_reference:externalReference,p_evidence_reference:evidenceReference,
+        p_actor_id:actorId,p_note:String(body.note||"").slice(0,300)
       });
       if (error) {
         if (error.code === "23505") return NextResponse.json({ error: "That bank/provider reference has already been recorded." }, { status: 409 });
-        return NextResponse.json({ error: "Could not record the pending deposit." }, { status: 500 });
+        return NextResponse.json({ error: "Could not record the pending deposit." }, { status: 409 });
       }
-      await admin.from("audit_logs").insert({actor_id:actorId,action:"treasury_ngn_deposit_submitted",entity_type:"treasury_deposit",metadata:{amount,external_reference:evidenceReference}});
-      return NextResponse.json({ ok:true, message:"Deposit recorded for independent review. It has not been credited." });
+      return NextResponse.json({ ok:true, result:data, message:"Deposit recorded for independent review. It has not been credited." });
     }
     if (action === "approve-ngn-deposit") {
       const id = String(body.depositId || "");
