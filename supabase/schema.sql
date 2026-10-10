@@ -255,3 +255,39 @@ drop policy if exists "audit admin read" on public.audit_logs;
 create policy "audit admin read" on public.audit_logs for select to authenticated
 using((select private.is_super_admin()));
 drop function if exists public.is_super_admin();
+
+
+-- Latest request-reservation signature records the purpose, without persisting submitted identity numbers.
+drop function if exists public.topverify_reserve_request(uuid,text,text,timestamptz);
+create or replace function public.topverify_reserve_request(
+ p_user_id uuid,p_service_id text,p_request_reference text,p_consent_confirmed_at timestamptz,p_purpose text
+) returns jsonb language plpgsql security definer set search_path=public
+as $$
+declare v_profile public.profiles%rowtype; v_service public.services%rowtype; v_wallet public.wallets%rowtype;
+ v_request_id uuid; v_new_balance bigint;
+begin
+ if p_purpose not in ('Customer onboarding / KYC with consent','Data subject requested their own record','Compliance verification with lawful basis') then raise exception 'INVALID_REQUEST_PURPOSE'; end if;
+ select * into v_profile from public.profiles where id=p_user_id for update;
+ if not found then raise exception 'PROFILE_NOT_FOUND'; end if;
+ if v_profile.status <> 'approved' then raise exception 'ACCOUNT_NOT_APPROVED'; end if;
+ if v_profile.is_super_admin is false and v_profile.terms_accepted_at is null then raise exception 'TERMS_NOT_ACCEPTED'; end if;
+ select * into v_service from public.services where id=p_service_id and enabled=true;
+ if not found then raise exception 'SERVICE_UNAVAILABLE'; end if;
+ if p_consent_confirmed_at is null then raise exception 'CONSENT_REQUIRED'; end if;
+ select * into v_wallet from public.wallets where user_id=p_user_id for update;
+ if not found then raise exception 'WALLET_NOT_FOUND'; end if;
+ if v_wallet.balance_kobo < v_service.price_kobo then raise exception 'INSUFFICIENT_BALANCE'; end if;
+ v_new_balance:=v_wallet.balance_kobo-v_service.price_kobo;
+ update public.wallets set balance_kobo=v_new_balance,updated_at=now() where user_id=p_user_id;
+ insert into public.wallet_ledger(user_id,entry_type,amount_kobo,balance_after_kobo,reference,description)
+ values(p_user_id,'debit',v_service.price_kobo,v_new_balance,p_request_reference,'TopVerify '||v_service.name);
+ insert into public.identity_requests(user_id,service_id,status,fee_kobo,request_reference,input_payload,consent_confirmed_at)
+ values(p_user_id,p_service_id,'processing',v_service.price_kobo,p_request_reference,jsonb_build_object('purpose',p_purpose),p_consent_confirmed_at)
+ returning id into v_request_id;
+ insert into public.audit_logs(actor_id,target_user_id,action,entity_type,entity_id,metadata)
+ values(p_user_id,p_user_id,'identity_request_started','identity_request',v_request_id::text,jsonb_build_object('service_id',p_service_id,'reference',p_request_reference,'purpose',p_purpose));
+ return jsonb_build_object('request_id',v_request_id,'fee_kobo',v_service.price_kobo,'balance_after_kobo',v_new_balance);
+end;
+$$;
+revoke all on function public.topverify_reserve_request(uuid,text,text,timestamptz,text) from public,anon,authenticated;
+grant execute on function public.topverify_reserve_request(uuid,text,text,timestamptz,text) to service_role;
