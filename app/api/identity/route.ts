@@ -77,6 +77,9 @@ export async function POST(request: Request) {
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid request body." }, { status: 400 }); }
 
   const serviceId = typeof body.serviceId === "string" ? body.serviceId : "";
+  const allowedPurposes = ["Customer onboarding / KYC with consent", "Data subject requested their own record", "Compliance verification with lawful basis"];
+  const purpose = typeof body.purpose === "string" ? body.purpose : "";
+  if (!allowedPurposes.includes(purpose)) return NextResponse.json({ error: "Select a valid purpose for this identity request." }, { status: 400 });
   if (body.consent !== true) return NextResponse.json({ error: "Confirm that you have the data subject’s authorization and consent for this specific request." }, { status: 400 });
 
   let requestPayload: { endpoint: string; payload: Record<string, string> };
@@ -96,6 +99,7 @@ export async function POST(request: Request) {
     p_service_id: serviceId,
     p_request_reference: reference,
     p_consent_confirmed_at: new Date().toISOString(),
+    p_purpose: purpose,
   });
   if (reserveError || !reservation) {
     const message = reserveError?.message ?? "Unable to reserve this request.";
@@ -103,6 +107,7 @@ export async function POST(request: Request) {
     if (message.includes("INSUFFICIENT_BALANCE")) return NextResponse.json({ error: "Insufficient wallet balance. Fund your wallet before making this request." }, { status: 402 });
     if (message.includes("SERVICE_UNAVAILABLE")) return NextResponse.json({ error: "This service is currently unavailable." }, { status: 409 });
     if (message.includes("TERMS_NOT_ACCEPTED")) return NextResponse.json({ error: "Accept the current acceptable-use terms before making requests." }, { status: 403 });
+    if (message.includes("INVALID_REQUEST_PURPOSE")) return NextResponse.json({ error: "Select a valid purpose for this identity request." }, { status: 400 });
     return NextResponse.json({ error: "Could not reserve the request. Please try again or contact support." }, { status: 400 });
   }
   requestId = String(reservation.request_id);
