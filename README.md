@@ -32,20 +32,18 @@ The server route at `app/api/identity/route.ts` uses `NINSLIP_API_KEY` as a Bear
 
 Before enabling production access, confirm the upstream account's permissions, price list, intended customer-facing use and legal basis for each endpoint. Validation, IPE clearance and modification services are intentionally not exposed by the current UI.
 
-## Treasury and hot/cold wallet controls
+## Wallet funding and merchant settlement
 
-The super-admin treasury console is available at `/admin/treasury`. It separates company NGN and USDT (BSC) treasury ledgers from customer/agent wallet liabilities, supports independently reviewed NGN deposit entries, checks BSC USDT transaction receipts before recording hot-wallet deposits, and uses two distinct admins for transfer approval. The app does not custody private keys or broadcast transfers; external bank/custody execution remains unconfigured. See [the treasury setup guide](docs/topverify-setup.md).
+Each registered TopVerify user automatically receives an individual NGN wallet in the application database. Flutterwave hosted checkout is used to collect wallet top-ups; the server verifies the transaction and reconciles it idempotently before adding a credit to that user's wallet ledger. Collections settle to the merchant's configured Flutterwave settlement account. The customer wallet is an internal balance/liability, not a separate bank account. NINSlip remains the upstream identity provider and must be funded separately by the business owner.
 
-## Wallet funding status
-
-The database-backed wallet and server-side request debit/refund ledger are connected. **Payment gateway top-ups are not yet connected**. Funding must remain disabled until a payment provider and signature-verified, idempotent webhook are implemented and tested.
+The previous hot/cold treasury console has been retired from the active application. Existing treasury database tables and historical records are retained, not deleted. See [the setup guide](docs/topverify-setup.md) for Flutterwave environment variables and webhook setup.
 
 ## Production checklist
 
 - Set Vercel environment variables, including server-only `SUPABASE_SERVICE_ROLE_KEY` and `NINSLIP_API_KEY`.
 - Create the owner account, then bootstrap it as the first administrator using the SQL in the setup guide.
 - Configure Supabase email confirmation and production redirect URLs.
-- Add a real payment provider integration and verified webhook before enabling wallet top-ups.
+- Configure Flutterwave keys and the signed webhook, then test the checkout, transaction verification, duplicate webhook and ledger reconciliation in test mode before enabling live wallet funding.
 - Add request rate limiting, abuse monitoring, data retention and deletion procedures, and provider reconciliation for ambiguous timeouts.
 - Review applicable NIMC/provider authorization and Nigeria Data Protection Act obligations before launch.
 
