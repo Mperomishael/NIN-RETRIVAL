@@ -1,6 +1,6 @@
-# Empire Identity Hub
+# TopVerify
 
-Responsive Next.js dashboard starter for identity-service agents and super-admins. Includes service-specific request forms, pricing and wallet UI previews, Supabase starter schema, and setup notes.
+A mobile-first identity-services workspace for approved agents, with Supabase authentication, agent onboarding/KYC metadata, dedicated NGN wallets, retail service pricing, request history and a server-side NINSlip adapter.
 
 ## Run locally
 
@@ -12,21 +12,37 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Open http://localhost:3000. Without Supabase credentials, the UI is in demo mode. It does not call NINSLIP or move real money.
+Configure all environment variables in `.env.local` for local development. Never commit real provider or service-role secrets.
 
-## Supabase setup
+## Supabase
 
-1. Create a Supabase project and set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `.env.local`.
-2. Review and run `supabase/schema.sql` in the Supabase SQL Editor.
-3. Configure Auth email confirmation and password-reset URLs.
-4. Create your first account, verify its UUID, then manually approve it as the first super admin in SQL. Never expose admin privilege assignment in a public signup form.
+The live Supabase project is configured through `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. The schema and secure billing functions are in `supabase/schema.sql`; the current project has also received the TopVerify onboarding/billing migration.
+
+- New accounts receive a pending profile and an individual zero-balance wallet.
+- KYC/onboarding metadata is stored in `public.profiles`.
+- Wallet balances and service history are read under row-level security.
+- Server-only database functions reserve service fees and finalize request outcomes.
+- Never expose `SUPABASE_SERVICE_ROLE_KEY` to browser code.
+
+See [docs/topverify-setup.md](docs/topverify-setup.md) for environment variables and the initial owner-admin bootstrap procedure.
+
+## NINSlip integration
+
+The server route at `app/api/identity/route.ts` uses `NINSLIP_API_KEY` as a Bearer token. Currently exposed service types are NIN verification, phone-based NIN lookup, BVN verification, demographic matching, and NIN/BVN PDF slip generation. It does not store full identity responses in request history; it records only request metadata and a minimal summary.
+
+Before enabling production access, confirm the upstream account's permissions, price list, intended customer-facing use and legal basis for each endpoint. Validation, IPE clearance and modification services are intentionally not exposed by the current UI.
+
+## Wallet funding status
+
+The database-backed wallet and server-side request debit/refund ledger are connected. **Payment gateway top-ups are not yet connected**. Funding must remain disabled until a payment provider and signature-verified, idempotent webhook are implemented and tested.
 
 ## Production checklist
 
-- Implement server-side Supabase sessions, auth flows, protected admin actions, and authorization checks.
-- Connect only to an authorized NINSLIP/provider API using server-only credentials and the provider's current docs.
-- Add payment checkout and signature-verified, idempotent webhook processing; wallet credit/debit must be atomic and server-side.
-- Add rate limits, request idempotency, audit logs, data minimization, retention controls, and error monitoring.
-- Replace mock UI data with database-backed records. The role switch is only a UI preview, not a security boundary.
+- Set Vercel environment variables, including server-only `SUPABASE_SERVICE_ROLE_KEY` and `NINSLIP_API_KEY`.
+- Create the owner account, then bootstrap it as the first administrator using the SQL in the setup guide.
+- Configure Supabase email confirmation and production redirect URLs.
+- Add a real payment provider integration and verified webhook before enabling wallet top-ups.
+- Add request rate limiting, abuse monitoring, data retention and deletion procedures, and provider reconciliation for ambiguous timeouts.
+- Review applicable NIMC/provider authorization and Nigeria Data Protection Act obligations before launch.
 
-Do not deploy as a live identity or payment service until authorization, provider access, data handling, and payment reconciliation are implemented and tested.
+Do not use the platform to access identity information without a lawful purpose and the data subject's authorization. Do not use test credentials to query real people.
