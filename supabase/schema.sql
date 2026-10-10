@@ -112,3 +112,104 @@ on conflict(id) do nothing;
 -- Apply this schema only after review. To bootstrap the first administrator:
 -- UPDATE public.profiles SET is_super_admin=true,status='approved',authorization_reviewed_at=now() WHERE id='VERIFIED_AUTH_USER_UUID';
 -- Never expose admin assignment in a public signup form. Store only minimal identity data with appropriate encryption and retention.
+
+
+-- TopVerify onboarding metadata. The signup form records acceptance of the current acceptable-use version.
+alter table public.profiles
+  add column if not exists terms_accepted_at timestamptz,
+  add column if not exists terms_version text,
+  add column if not exists kyc_submitted_at timestamptz;
+
+create or replace function public.handle_new_user()
+returns trigger language plpgsql security definer set search_path=public
+as $$
+begin
+ insert into public.profiles(
+   id, full_name, phone, business_name, business_address, intended_use,
+   terms_accepted_at, terms_version, kyc_submitted_at, status, is_super_admin
+ )
+ values(
+   new.id,
+   coalesce(new.raw_user_meta_data->>'full_name','New agent'),
+   nullif(new.raw_user_meta_data->>'phone',''),
+   nullif(new.raw_user_meta_data->>'business_name',''),
+   nullif(new.raw_user_meta_data->>'business_address',''),
+   nullif(new.raw_user_meta_data->>'intended_use',''),
+   nullif(new.raw_user_meta_data->>'terms_accepted_at','')::timestamptz,
+   nullif(new.raw_user_meta_data->>'terms_version',''),
+   now(),
+   'pending',
+   false
+ )
+ on conflict(id) do nothing;
+ insert into public.wallets(user_id,balance_kobo) values(new.id,0) on conflict(user_id) do nothing;
+ return new;
+end;
+$$;
+revoke all on function public.handle_new_user() from public, anon, authenticated;
+
+-- These billing functions are callable only by the server-side service role.
+create or replace function public.topverify_reserve_request(
+ p_user_id uuid, p_service_id text, p_request_reference text, p_consent_confirmed_at timestamptz
+) returns jsonb language plpgsql security definer set search_path=public
+as $$
+declare v_profile public.profiles%rowtype; v_service public.services%rowtype; v_wallet public.wallets%rowtype;
+        v_request_id uuid; v_new_balance bigint;
+begin
+ select * into v_profile from public.profiles where id=p_user_id for update;
+ if not found then raise exception 'PROFILE_NOT_FOUND'; end if;
+ if v_profile.status <> 'approved' then raise exception 'ACCOUNT_NOT_APPROVED'; end if;
+ if v_profile.terms_accepted_at is null then raise exception 'TERMS_NOT_ACCEPTED'; end if;
+ select * into v_service from public.services where id=p_service_id and enabled=true;
+ if not found then raise exception 'SERVICE_UNAVAILABLE'; end if;
+ if p_consent_confirmed_at is null then raise exception 'CONSENT_REQUIRED'; end if;
+ select * into v_wallet from public.wallets where user_id=p_user_id for update;
+ if not found then raise exception 'WALLET_NOT_FOUND'; end if;
+ if v_wallet.balance_kobo < v_service.price_kobo then raise exception 'INSUFFICIENT_BALANCE'; end if;
+ v_new_balance := v_wallet.balance_kobo - v_service.price_kobo;
+ update public.wallets set balance_kobo=v_new_balance,updated_at=now() where user_id=p_user_id;
+ insert into public.wallet_ledger(user_id,entry_type,amount_kobo,balance_after_kobo,reference,description)
+ values(p_user_id,'debit',v_service.price_kobo,v_new_balance,p_request_reference,'TopVerify '||v_service.name);
+ insert into public.identity_requests(user_id,service_id,status,fee_kobo,request_reference,input_payload,consent_confirmed_at)
+ values(p_user_id,p_service_id,'processing',v_service.price_kobo,p_request_reference,'{}'::jsonb,p_consent_confirmed_at)
+ returning id into v_request_id;
+ insert into public.audit_logs(actor_id,target_user_id,action,entity_type,entity_id,metadata)
+ values(p_user_id,p_user_id,'identity_request_started','identity_request',v_request_id::text,jsonb_build_object('service_id',p_service_id,'reference',p_request_reference));
+ return jsonb_build_object('request_id',v_request_id,'fee_kobo',v_service.price_kobo,'balance_after_kobo',v_new_balance);
+end;
+$$;
+
+create or replace function public.topverify_finalize_request(
+ p_request_id uuid, p_status text, p_provider_reference text default null,
+ p_result_summary jsonb default '{}'::jsonb, p_error_code text default null
+) returns jsonb language plpgsql security definer set search_path=public
+as $$
+declare v_req public.identity_requests%rowtype; v_balance bigint; v_refund_ref text;
+begin
+ if p_status not in ('completed','failed') then raise exception 'INVALID_FINAL_STATUS'; end if;
+ select * into v_req from public.identity_requests where id=p_request_id for update;
+ if not found then raise exception 'REQUEST_NOT_FOUND'; end if;
+ if v_req.status <> 'processing' then return jsonb_build_object('status',v_req.status,'already_finalized',true); end if;
+ if p_status='failed' and v_req.fee_kobo>0 then
+   update public.wallets set balance_kobo=balance_kobo+v_req.fee_kobo,updated_at=now()
+   where user_id=v_req.user_id returning balance_kobo into v_balance;
+   v_refund_ref:=v_req.request_reference||'-REFUND';
+   insert into public.wallet_ledger(user_id,entry_type,amount_kobo,balance_after_kobo,reference,description)
+   values(v_req.user_id,'refund',v_req.fee_kobo,v_balance,v_refund_ref,'Refund for failed TopVerify request')
+   on conflict(reference) do nothing;
+ end if;
+ update public.identity_requests set status=p_status,provider_reference=p_provider_reference,
+ result_payload=coalesce(p_result_summary,'{}'::jsonb),error_code=p_error_code,
+ error_message_safe=case when p_status='failed' then 'Provider could not complete this request. Any service fee has been refunded.' else null end,
+ completed_at=now() where id=p_request_id;
+ insert into public.audit_logs(actor_id,target_user_id,action,entity_type,entity_id,metadata)
+ values(v_req.user_id,v_req.user_id,'identity_request_'||p_status,'identity_request',p_request_id::text,
+ jsonb_build_object('service_id',v_req.service_id,'provider_reference',p_provider_reference));
+ return jsonb_build_object('status',p_status,'balance_after_kobo',v_balance);
+end;
+$$;
+
+revoke all on function public.topverify_reserve_request(uuid,text,text,timestamptz) from public, anon, authenticated;
+revoke all on function public.topverify_finalize_request(uuid,text,text,jsonb,text) from public, anon, authenticated;
+grant execute on function public.topverify_reserve_request(uuid,text,text,timestamptz) to service_role;
+grant execute on function public.topverify_finalize_request(uuid,text,text,jsonb,text) to service_role;
