@@ -8,11 +8,9 @@ Configure these in Vercel Project Settings → Environment Variables for Product
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: the project's publishable key.
 - `SUPABASE_SERVICE_ROLE_KEY`: server-only Supabase secret used by trusted billing/request code. Never prefix it with `NEXT_PUBLIC_`, expose it in a browser, or commit it to GitHub.
 - `NINSLIP_API_KEY`: the authorized NINSlip Bearer API token. Never expose it to the browser.
-- `BSC_RPC_URL`: trusted BNB Smart Chain mainnet RPC endpoint (optional; defaults to the public BNB Chain endpoint).
-- `BSC_USDT_TOKEN_ADDRESS`: the independently verified BEP-20 token contract address for the USDT asset you accept. Do not use a token address based only on its displayed symbol.
-- `BSC_USDT_HOT_ADDRESS`: the receiving address for the TopVerify USDT BSC hot wallet. The private key must remain in a separate custody/signing system, never in this app.
-- `BSC_USDT_COLD_ADDRESS`: optional cold reserve address shown in the admin console; deposits are not scanned there by the initial hot-wallet workflow.
-- `BSC_USDT_MIN_CONFIRMATIONS`: required block confirmations; default is 15.
+- `NEXT_PUBLIC_SITE_URL`: canonical HTTPS origin for the TopVerify site, used for the Flutterwave return URL.
+- `FLUTTERWAVE_SECRET_KEY`: server-only Flutterwave secret key used to create checkout links and verify transactions. Never expose it to browser code.
+- `FLUTTERWAVE_WEBHOOK_SECRET_HASH`: the secret hash configured in the Flutterwave dashboard for the v3 webhook endpoint. Keep it private and identical on both sides.
 
 After changing variables, redeploy the project.
 
@@ -62,11 +60,17 @@ The server route uses the API key from `NINSLIP_API_KEY` and calls `https://api.
 
 Validation, IPE clearance and modification services are intentionally hidden until their account permissions, legal authorization, pricing, and provider response/settlement behavior are confirmed.
 
-## Wallet and billing
+## Wallet funding and Flutterwave
 
-New agents receive a dedicated zero-balance wallet. Each live request uses a server-side database function to check approval and available balance, debit the configured TopVerify retail fee, create a ledger row and record the request. Provider failures recorded by the route trigger a refund entry. Ambiguous timeouts should be reconciled against the provider dashboard before retrying.
+Each signup automatically creates a zero-balance NGN wallet for that TopVerify user. The My wallet page starts a Flutterwave hosted checkout for amounts from ₦500 to ₦1,000,000. The server creates a unique pending top-up reference; the customer never supplies a wallet user ID or transaction reference.
 
-Payment-gateway funding is not yet wired. Do not manually credit users from browser code; implement and verify a signed payment webhook before enabling wallet top-ups.
+Set `FLUTTERWAVE_SECRET_KEY`, `FLUTTERWAVE_WEBHOOK_SECRET_HASH`, and `NEXT_PUBLIC_SITE_URL` in Vercel. In Flutterwave's v3 dashboard, configure the webhook URL as `https://YOUR_DOMAIN/api/payments/flutterwave/webhook` and set its secret hash to the same value as `FLUTTERWAVE_WEBHOOK_SECRET_HASH`. The webhook uses the v3 `verif-hash` header. Configure the live webhook separately from the test webhook.
+
+Before crediting a wallet, the server re-queries Flutterwave's transaction verification API and checks transaction ID, unique reference, successful status, exact NGN amount and currency. The database function locks the pending top-up and wallet, writes a unique wallet-ledger credit, records a payment event and audit entry, and marks the top-up credited in one transaction. Duplicate webhook or callback delivery cannot credit the same top-up twice. The browser cannot write to top-up records.
+
+All collections settle to the merchant's configured Flutterwave settlement account by default; there is no automatic split or separate "profit wallet" in this implementation. Customer wallet balances are liabilities tracked in TopVerify's ledger. NINSlip provider costs are still funded by the business owner separately, and customer service fees are charged from their TopVerify wallet when they request a service.
+
+This flow uses hosted checkout; it does not create a permanent personal bank account number for each user. Flutterwave static virtual accounts have additional customer-identity and eligibility requirements and should be treated as a separate feature. Never manually credit users from browser code. Test successful, failed, mismatched, duplicate and delayed webhook scenarios in test mode before enabling live payments.
 
 ## KYC and privacy
 
@@ -74,22 +78,6 @@ The current signup stores basic agent onboarding details (name, phone, business,
 
 Identity responses are returned to the approved requesting agent but are not stored as full identity records in the request history. The request record stores service, price, reference, status and a minimal result summary. Never use test credentials to query real people's identities.
 
-## Super-admin treasury console
+## Retired treasury console
 
-Open `/admin/treasury` while signed in as an approved super-admin. The API independently verifies the authenticated user against `public.profiles` on every request. Treasury tables have RLS enabled and no direct privileges for browser roles; server-only service-role endpoints perform the controlled writes.
-
-The migration creates separate company treasury accounts for NGN hot/cold and USDT on BSC hot/cold. These are **company treasury ledgers**, separate from agent balances in `public.wallets` and `public.wallet_ledger`. The balance shown is computed from recorded ledger entries and is not a live bank or chain balance.
-
-### BSC USDT deposits
-
-The admin console can verify a submitted transaction hash against BSC mainnet, check successful receipt status, configured token contract, a BEP-20 `Transfer` log to the configured hot-wallet address, and the configured confirmation threshold. A unique transaction hash and atomic database function prevent duplicate ledger credits. Configure and independently verify `BSC_USDT_TOKEN_ADDRESS` and `BSC_USDT_HOT_ADDRESS` before testing with a small amount. Deposits to the cold wallet are not scanned by this initial hot-deposit workflow.
-
-### NGN treasury deposits
-
-Recording a bank/provider deposit creates a pending record only. It does not credit the ledger. A different approved super-admin must review the reference against the bank/provider statement and then approve the credit. Do not treat an uploaded or typed evidence reference by itself as proof of settlement.
-
-### Transfers and custody
-
-Transfer requests require a second, distinct approved super-admin. Pending and approved proposals reserve the requested amount against the source account's ledger balance to prevent over-proposing funds. Approval changes the request to `approved_to_execute`; it **does not** broadcast a blockchain transaction, instruct a bank, or create a transfer ledger movement. An external custody/signing provider and bank execution/reconciliation integration are still required. Cold-wallet keys must remain offline or in a dedicated custody system; never place private keys in Supabase tables, browser code, GitHub, or ordinary Vercel environment variables.
-
-Do not enable production funding or move material funds until token identity, destination addresses, RPC reliability, bank evidence procedures, custody controls, reconciliation, limits and incident response have been tested.
+The previous hot/cold NGN and USDT treasury console is retired from the active product. The old treasury tables and migrations remain in the database for historical auditability; they are not part of the current customer wallet funding path. The current flow is Flutterwave merchant collections → verified top-up → individual TopVerify wallet ledger → service debit. The application does not automatically transfer NINSlip costs or profits between accounts.
