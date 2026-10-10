@@ -109,6 +109,9 @@ insert into public.services(id,name,description,category,price_kobo) values
 ('nin-modification','NIN Modification','Start an eligible demographic update request','Special services',200000)
 on conflict(id) do nothing;
 
+alter table public.services drop constraint if exists services_enabled_price_positive;
+alter table public.services add constraint services_enabled_price_positive check (enabled = false or price_kobo > 0);
+
 -- Additional documented NINSlip endpoints stay hidden until an administrator sets retail pricing.
 insert into public.services(id,name,description,category,price_kobo,enabled,requires_manual_review) values
 ('phone-slip','Phone NIN Slip Generation','Generate an eligible NIN slip using an authorized phone-number request','Documents',0,false,false),
