@@ -14,7 +14,7 @@ type Profile = {
 };
 type Service = { id: string; name: string; description: string; category: string; price_kobo: number; enabled: boolean };
 type WalletRow = { balance_kobo: number; currency: string };
-type RequestRow = { id: string; service_id: string; status: string; fee_kobo: number; request_reference: string; created_at: string };
+type RequestRow = { id: string; service_id: string; status: string; fee_kobo: number; request_reference: string; provider_reference?: string | null; created_at: string };
 type RequestFields = { nin: string; phone: string; bvn: string; firstName: string; lastName: string; gender: string; dateOfBirth: string; slipType: string; trackingId: string; errorType: string; fieldCode: string; modificationValue: string; modificationReason: string };
 const money = (kobo: number) => new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 0 }).format(kobo / 100);
 const dateText = (value: string) => new Date(value).toLocaleString("en-NG", { dateStyle: "medium", timeStyle: "short" });
@@ -65,7 +65,7 @@ export default function DashboardPage() {
       supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
       supabase.from("wallets").select("balance_kobo,currency").eq("user_id", userId).maybeSingle(),
       supabase.from("services").select("id,name,description,category,price_kobo,enabled").eq("enabled", true).order("category").order("name"),
-      supabase.from("identity_requests").select("id,service_id,status,fee_kobo,request_reference,created_at").order("created_at", { ascending: false }).limit(8),
+      supabase.from("identity_requests").select("id,service_id,status,fee_kobo,request_reference,provider_reference,created_at").order("created_at", { ascending: false }).limit(8),
     ]);
     if (p.data) setProfile(p.data as Profile);
     if (w.data) setWallet(w.data as WalletRow);
@@ -311,7 +311,7 @@ export default function DashboardPage() {
       <div className="tv-brand"><div className="tv-brand-mark"><Fingerprint size={24}/></div><div><strong>TopVerify</strong><span>IDENTITY OPERATIONS</span></div><button className="tv-icon-btn tv-close-menu" onClick={()=>setMobileMenu(false)} aria-label="Close menu"><X size={18}/></button></div>
       <div className="tv-workspace-card"><div className="tv-avatar">{(profile?.full_name || user.email || "TV").split(" ").map(x=>x[0]).join("").slice(0,2).toUpperCase()}</div><div><strong>{profile?.business_name || profile?.full_name || "Agent workspace"}</strong><span>{profile?.is_super_admin ? "Platform administrator" : "Agent workspace"}</span></div><span className="tv-status-dot"/></div>
       <nav className="tv-nav"><span className="tv-nav-label">WORKSPACE</span>{navItems.map(item=><button key={item.label} className={section===item.label ? "tv-nav-item tv-nav-active" : "tv-nav-item"} onClick={()=>{setSection(item.label);setSelected(null);setMobileMenu(false);setNotice("");}}><item.icon size={18}/><span>{item.label}</span>{item.label==="Request history" && <small>{history.length}</small>}</button>)}
-      {profile?.is_super_admin && <><span className="tv-nav-label tv-nav-spaced">ADMINISTRATION</span><button className={section==="Agents"?"tv-nav-item tv-nav-active":"tv-nav-item"} onClick={()=>{setSection("Agents");setSelected(null);setMobileMenu(false);}}><Users size={18}/><span>Agent oversight</span></button><button className={section==="Pricing"?"tv-nav-item tv-nav-active":"tv-nav-item"} onClick={()=>{setSection("Pricing");setSelected(null);setMobileMenu(false);}}><CreditCard size={18}/><span>Service pricing</span></button><button className="tv-nav-item" onClick={()=>window.location.assign("/admin/treasury")}><Wallet size={18}/><span>Treasury &amp; wallets</span></button></>}
+      {profile?.is_super_admin && <><span className="tv-nav-label tv-nav-spaced">ADMINISTRATION</span><button className={section==="Agents"?"tv-nav-item tv-nav-active":"tv-nav-item"} onClick={()=>{setSection("Agents");setSelected(null);setMobileMenu(false);}}><Users size={18}/><span>Agent oversight</span></button><button className={section==="Pricing"?"tv-nav-item tv-nav-active":"tv-nav-item"} onClick={()=>{setSection("Pricing");setSelected(null);setMobileMenu(false);}}><CreditCard size={18}/><span>Service pricing</span></button> </>}
       </nav>
       <div className="tv-sidebar-foot"><div className="tv-help-box"><div className="tv-help-icon"><CircleHelp size={18}/></div><strong>Need a hand?</strong><p>Contact support for account, wallet or service issues.</p><button className="tv-contact-support" type="button" onClick={()=>flash("Add your verified TopVerify support contact before launch.",true)}>Contact support <ArrowRight size={13}/></button></div><button className="tv-logout" onClick={signOut}><LogOut size={17}/> Sign out <span>{user.email}</span></button></div>
     </aside>
@@ -362,7 +362,7 @@ export default function DashboardPage() {
 
 function RequestTable({ history, services }: { history: RequestRow[]; services: Service[] }) {
   if (!history.length) return <div className="tv-empty"><div><Clock3 size={21}/></div><strong>No requests yet</strong><span>Your completed and failed requests will appear here.</span></div>;
-  return <div className="tv-table-scroll"><table className="tv-table"><thead><tr><th>SERVICE</th><th>REFERENCE</th><th>DATE</th><th>FEE</th><th>STATUS</th></tr></thead><tbody>{history.map(row=><tr key={row.id}><td><strong>{services.find(s=>s.id===row.service_id)?.name || row.service_id}</strong></td><td className="tv-ref">{row.request_reference}</td><td>{dateText(row.created_at)}</td><td>{money(row.fee_kobo)}</td><td><span className={row.status==="completed"?"tv-table-status tv-table-success":row.status==="failed"||row.status==="refunded"?"tv-table-status tv-table-failed":"tv-table-status tv-table-pending"}>{row.status}</span></td></tr>)}</tbody></table></div>;
+  return <div className="tv-table-scroll"><table className="tv-table"><thead><tr><th>SERVICE</th><th>REFERENCE</th><th>DATE</th><th>FEE</th><th>STATUS</th></tr></thead><tbody>{history.map(row=><tr key={row.id}><td><strong>{services.find(s=>s.id===row.service_id)?.name || row.service_id}</strong></td><td className="tv-ref">{row.request_reference}{row.provider_reference && row.provider_reference !== row.request_reference ? <small>{row.provider_reference}</small> : null}</td><td>{dateText(row.created_at)}</td><td>{money(row.fee_kobo)}</td><td><span className={row.status==="completed"?"tv-table-status tv-table-success":row.status==="failed"||row.status==="refunded"?"tv-table-status tv-table-failed":"tv-table-status tv-table-pending"}>{row.status}</span></td></tr>)}</tbody></table></div>;
 }
 
 function LedgerTable({ userId }: { userId: string }) {
