@@ -213,3 +213,45 @@ revoke all on function public.topverify_reserve_request(uuid,text,text,timestamp
 revoke all on function public.topverify_finalize_request(uuid,text,text,jsonb,text) from public, anon, authenticated;
 grant execute on function public.topverify_reserve_request(uuid,text,text,timestamptz) to service_role;
 grant execute on function public.topverify_finalize_request(uuid,text,text,jsonb,text) to service_role;
+
+
+-- Keep the SECURITY DEFINER admin-check outside PostgREST's exposed public schema.
+create schema if not exists private;
+revoke all on schema private from public, anon;
+grant usage on schema private to authenticated;
+create or replace function private.is_super_admin()
+returns boolean language sql stable security definer set search_path=public
+as $$
+ select exists(select 1 from public.profiles p where p.id=auth.uid() and p.is_super_admin=true and p.status='approved')
+$$;
+revoke all on function private.is_super_admin() from public, anon;
+grant execute on function private.is_super_admin() to authenticated;
+
+drop policy if exists "profile read own or admin" on public.profiles;
+create policy "profile read own or admin" on public.profiles for select to authenticated
+using(id=auth.uid() or (select private.is_super_admin()));
+drop policy if exists "profile update admin only" on public.profiles;
+create policy "profile update admin only" on public.profiles for update to authenticated
+using((select private.is_super_admin())) with check((select private.is_super_admin()));
+drop policy if exists "services read enabled or admin" on public.services;
+create policy "services read enabled or admin" on public.services for select to authenticated
+using(enabled=true or (select private.is_super_admin()));
+drop policy if exists "services admin all" on public.services;
+create policy "services admin all" on public.services for all to authenticated
+using((select private.is_super_admin())) with check((select private.is_super_admin()));
+drop policy if exists "wallet read own or admin" on public.wallets;
+create policy "wallet read own or admin" on public.wallets for select to authenticated
+using(user_id=auth.uid() or (select private.is_super_admin()));
+drop policy if exists "ledger read own or admin" on public.wallet_ledger;
+create policy "ledger read own or admin" on public.wallet_ledger for select to authenticated
+using(user_id=auth.uid() or (select private.is_super_admin()));
+drop policy if exists "requests read own or admin" on public.identity_requests;
+create policy "requests read own or admin" on public.identity_requests for select to authenticated
+using(user_id=auth.uid() or (select private.is_super_admin()));
+drop policy if exists "payment events admin read" on public.payment_events;
+create policy "payment events admin read" on public.payment_events for select to authenticated
+using((select private.is_super_admin()));
+drop policy if exists "audit admin read" on public.audit_logs;
+create policy "audit admin read" on public.audit_logs for select to authenticated
+using((select private.is_super_admin()));
+drop function if exists public.is_super_admin();
