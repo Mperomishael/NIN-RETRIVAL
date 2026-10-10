@@ -23,7 +23,7 @@ const money = (kobo: number) => new Intl.NumberFormat("en-NG", { style: "currenc
 const dateText = (value: string) => new Date(value).toLocaleString("en-NG", { dateStyle: "medium", timeStyle: "short" });
 const emptyFields: RequestFields = { nin: "", phone: "", bvn: "", firstName: "", lastName: "", gender: "m", dateOfBirth: "", slipType: "Standard Slip" };
 
-export default function Home() {
+export default function DashboardPage() {
   const [supabase] = useState(() => createClient());
   const [user, setUser] = useState<{ id: string; email?: string } | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
