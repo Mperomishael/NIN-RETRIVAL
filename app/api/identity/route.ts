@@ -22,9 +22,10 @@ function safeServicePayload(serviceId: string, body: Record<string, unknown>) {
     return { endpoint: "/nin/", payload: { number: str("nin") } };
   }
   if (serviceId === "phone-lookup") {
-    const phone = str("phone").replace(/[\s-]/g, "");
-    if (!/^(0\d{10}|234\d{10}|\+234\d{10})$/.test(phone)) throw new Error("Enter a valid Nigerian phone number.");
-    return { endpoint: "/phone/", payload: { number: phone } };
+    const phone = str("phone").replace(/[\\s-]/g, "");
+    if (!/^(0\\d{10}|234\\d{10}|\\+234\\d{10})$/.test(phone)) throw new Error("Enter a valid Nigerian phone number.");
+    const normalizedPhone = phone.startsWith("+234") ? "0" + phone.slice(4) : phone.startsWith("234") ? "0" + phone.slice(3) : phone;
+    return { endpoint: "/phone/", payload: { number: normalizedPhone } };
   }
   if (serviceId === "bvn-verify") {
     if (!elevenDigits(str("bvn"))) throw new Error("Enter a valid 11-digit BVN.");
