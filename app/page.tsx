@@ -53,6 +53,7 @@ export default function DashboardPage() {
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [checking, setChecking] = useState(true);
   const [fundAmount, setFundAmount] = useState("5000");
+  const [fundingLoading, setFundingLoading] = useState(false);
 
   const flash = (message: string, isError = false) => { setNotice(message); setNoticeError(isError); };
   const refreshData = useCallback(async (userId: string) => {
@@ -83,6 +84,23 @@ export default function DashboardPage() {
     });
     return () => { alive = false; listener.subscription.unsubscribe(); };
   }, [supabase, refreshData]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const paymentState = params.get("wallet_payment");
+    if (!paymentState) return;
+    if (paymentState === "success") {
+      setNotice("Flutterwave verified your payment and your wallet has been credited.");
+      setNoticeError(false);
+    } else if (paymentState === "pending") {
+      setNotice("Your payment is still being verified. Refresh your wallet shortly if the balance has not updated.");
+      setNoticeError(true);
+    } else {
+      setNotice("Payment was not completed. You can start another wallet top-up.");
+      setNoticeError(true);
+    }
+    window.history.replaceState({}, "", window.location.pathname);
+  }, []);
 
   const filteredServices = useMemo(() => services.filter(s => (s.name + " " + s.description + " " + s.category).toLowerCase().includes(query.toLowerCase())), [services, query]);
   const serviceIcon = (id: string) => id.includes("phone") ? Smartphone : id.includes("slip") ? FileCheck2 : id.includes("bvn") ? ShieldCheck : Fingerprint;
@@ -146,6 +164,31 @@ export default function DashboardPage() {
       if (user) await refreshData(user.id);
     } catch (error) { flash(error instanceof Error ? error.message : "Request failed.", true); if (user) await refreshData(user.id); }
     finally { setRequestLoading(false); }
+  }
+
+  async function fundWallet() {
+    const amount = Number(fundAmount);
+    if (!Number.isSafeInteger(amount) || amount < 500 || amount > 1000000) {
+      flash("Enter a whole-naira amount between ₦500 and ₦1,000,000.", true);
+      return;
+    }
+    setFundingLoading(true);
+    setNotice("");
+    try {
+      const response = await fetch("/api/payments/flutterwave/initialize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amountNaira: amount }),
+      });
+      const payload = await response.json();
+      if (!response.ok || typeof payload.checkoutUrl !== "string") {
+        throw new Error(payload.error || "Unable to start Flutterwave checkout.");
+      }
+      window.location.assign(payload.checkoutUrl);
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "Unable to start wallet funding.", true);
+      setFundingLoading(false);
+    }
   }
 
   function downloadSlip(slip: Record<string, unknown>) {
@@ -243,7 +286,7 @@ export default function DashboardPage() {
           </div>}
         </>}
         {section === "Request history" && <><div className="tv-page-heading"><div><span className="tv-eyebrow"><Clock3 size={13}/> AUDITABLE ACTIVITY</span><h1>Request history</h1><p>Your latest identity-service requests and provider references.</p></div><button className="tv-button-primary" onClick={()=>setSection("Services")}><Zap size={16}/> New request</button></div><section className="tv-panel tv-history-panel"><RequestTable history={history} services={services}/></section></>}
-        {section === "My wallet" && <><div className="tv-page-heading"><div><span className="tv-eyebrow"><Wallet size={13}/> WALLET & PAYMENTS</span><h1>My wallet</h1><p>Your balance is held in your dedicated TopVerify wallet.</p></div></div><div className="tv-wallet-page-grid"><section className="tv-wallet-hero"><span><Wallet size={16}/> AVAILABLE BALANCE</span><strong>{money(Number(wallet?.balance_kobo || 0))}</strong><p>NGN · Nigerian naira</p><div><button disabled onClick={()=>flash("Payment gateway setup is required before wallet funding can go live.",true)}>Fund wallet <ArrowRight size={15}/></button><span>Payments not connected yet</span></div></section><section className="tv-panel tv-fund-panel"><h2>Fund your wallet</h2><p>Payment integration will be activated after a provider is configured and webhook verification is tested.</p><label>Amount (NGN)<input value={fundAmount} onChange={e=>setFundAmount(e.target.value.replace(/\D/g,""))} inputMode="numeric" min="500" type="number"/></label><div className="tv-quick-amounts">{["2000","5000","10000","20000"].map(n=><button key={n} className={fundAmount===n?"tv-quick-active":""} onClick={()=>setFundAmount(n)}>{money(Number(n)*100)}</button>)}</div><div className="tv-soft-note"><ShieldCheck size={17}/><span>Wallet credits must only be posted from a verified payment webhook or an audited administrator adjustment. No demo crediting is enabled.</span></div></section></div><section className="tv-panel tv-history-panel"><div className="tv-panel-heading"><div><h2>Recent ledger activity</h2><p>Wallet credits, debits and refunds</p></div></div><LedgerTable userId={user.id}/></section></>}
+        {section === "My wallet" && <><div className="tv-page-heading"><div><span className="tv-eyebrow"><Wallet size={13}/> WALLET & PAYMENTS</span><h1>My wallet</h1><p>Your individual TopVerify wallet is created automatically when you register.</p></div></div><div className="tv-wallet-page-grid"><section className="tv-wallet-hero"><span><Wallet size={16}/> AVAILABLE BALANCE</span><strong>{money(Number(wallet?.balance_kobo || 0))}</strong><p>NGN · Nigerian naira</p><div><button disabled={fundingLoading} onClick={fundWallet}>{fundingLoading ? "Opening checkout…" : "Fund wallet"} <ArrowRight size={15}/></button><span>Secure Flutterwave checkout</span></div></section><section className="tv-panel tv-fund-panel"><h2>Fund your wallet</h2><p>Choose an amount and pay through Flutterwave. TopVerify verifies the transaction server-side before crediting your balance.</p><label>Amount (NGN)<input value={fundAmount} onChange={e=>setFundAmount(e.target.value.replace(/\D/g,""))} inputMode="numeric" min="500" max="1000000" type="number"/></label><div className="tv-quick-amounts">{["2000","5000","10000","20000"].map(n=><button type="button" key={n} className={fundAmount===n?"tv-quick-active":""} onClick={()=>setFundAmount(n)}>{money(Number(n)*100)}</button>)}</div><div className="tv-soft-note"><ShieldCheck size={17}/><span>Wallet funding: ₦500–₦1,000,000 per transaction. Payments settle to TopVerify’s configured Flutterwave merchant account; the wallet balance is an internal customer ledger, not a separate bank balance.</span></div></section></div><section className="tv-panel tv-history-panel"><div className="tv-panel-heading"><div><h2>Recent ledger activity</h2><p>Wallet credits, service debits and refunds</p></div></div><LedgerTable userId={user.id}/></section></>}
         {section === "Agents" && profile?.is_super_admin && <AdminAgents supabase={supabase} onNotice={flash}/>}
         {section === "Pricing" && profile?.is_super_admin && <AdminPricing supabase={supabase} services={services} onRefresh={()=>user && refreshData(user.id)} onNotice={flash}/>}
         {profile?.is_super_admin && section === "Overview" && <div className="tv-admin-callout"><Users size={18}/><div><strong>Platform administrator</strong><p>Use Agent oversight to review new agent accounts. Keep approval and pricing changes auditable.</p></div></div>}
