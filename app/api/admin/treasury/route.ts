@@ -142,7 +142,7 @@ export async function POST(request: Request) {
     if (action === "approve-ngn-deposit") {
       const id = String(body.depositId || "");
       if (!/^[0-9a-f-]{36}$/i.test(id)) return NextResponse.json({ error: "Invalid deposit reference." }, { status:400 });
-      const { data, error } = await admin.schema("private").rpc("topverify_approve_ngn_deposit",{p_deposit_id:id,p_reviewer_id:actorId});
+      const { data, error } = await admin.rpc("topverify_admin_approve_ngn_deposit",{p_deposit_id:id,p_reviewer_id:actorId});
       if (error) return NextResponse.json({error:error.message.includes("SECOND_REVIEWER_REQUIRED")?"A different super-admin must review this deposit.":error.message.includes("EVIDENCE_REQUIRED")?"Evidence is required before crediting.":"Deposit review could not be completed."},{status:409});
       return NextResponse.json({ok:true,result:data});
     }
@@ -151,7 +151,7 @@ export async function POST(request: Request) {
       const verified = await verifyBscDeposit(txHash);
       const { data: account, error: accountError } = await admin.from("treasury_accounts").select("id").eq("code","USDT_BSC_HOT").eq("is_active",true).single();
       if (accountError || !account) return NextResponse.json({ error:"USDT BSC hot treasury is not configured." }, { status:503 });
-      const { data, error } = await admin.schema("private").rpc("topverify_record_bsc_usdt_deposit",{
+      const { data, error } = await admin.rpc("topverify_admin_record_bsc_usdt_deposit",{
         p_account_id:account.id,p_tx_hash:txHash,p_amount:verified.amount,p_confirmations:verified.confirmations,
         p_block_number:verified.blockNumber,p_actor_id:actorId,
         p_metadata:{token_address:verified.tokenAddress,destination_address:verified.destinationAddress,decimals:verified.decimals,chain_id:56}
@@ -169,7 +169,7 @@ export async function POST(request: Request) {
       if(accountsError||!accounts||accounts.length!==2) return NextResponse.json({error:"Choose two active treasury accounts."},{status:400});
       const source=accounts.find(a=>a.code===sourceCode); const destination=accounts.find(a=>a.code===destinationCode);
       if(!source||!destination||source.asset!==destination.asset||source.network!==destination.network) return NextResponse.json({error:"Transfers must stay within the same asset and network."},{status:400});
-      const {data,error}=await admin.schema("private").rpc("topverify_request_treasury_transfer",{
+      const {data,error}=await admin.rpc("topverify_admin_request_treasury_transfer",{
         p_source_account_id:source.id,p_destination_account_id:destination.id,p_amount:amount,p_rationale:rationale,p_requester_id:actorId
       });
       if(error) return NextResponse.json({error:"Could not submit the transfer for approval."},{status:409});
@@ -178,7 +178,7 @@ export async function POST(request: Request) {
     if (action === "approve-transfer") {
       const id = String(body.transferId || "");
       if (!/^[0-9a-f-]{36}$/i.test(id)) return NextResponse.json({error:"Invalid transfer reference."},{status:400});
-      const {data,error}=await admin.schema("private").rpc("topverify_approve_treasury_transfer",{p_transfer_id:id,p_approver_id:actorId});
+      const {data,error}=await admin.rpc("topverify_admin_approve_treasury_transfer",{p_transfer_id:id,p_approver_id:actorId});
       if(error) return NextResponse.json({error:error.message.includes("SECOND_APPROVER_REQUIRED")?"The requester cannot approve their own transfer.": "Transfer approval could not be completed."},{status:409});
       return NextResponse.json({ok:true,result:data,message:"Second approval recorded. This does not broadcast or execute a transfer."});
     }
