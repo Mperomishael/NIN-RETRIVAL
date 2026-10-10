@@ -20,7 +20,7 @@ export default function TreasuryPage(){
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState("");
  const [notice,setNotice]=useState("");
- const [asset,setAsset]=useState<"NGN"|"USDT">("NGN");
+ const [asset,setAsset]=useState<"NGN"|"USDT">("USDT");
  const [amount,setAmount]=useState("");
  const [externalReference,setExternalReference]=useState("");
  const [evidenceReference,setEvidenceReference]=useState("");
