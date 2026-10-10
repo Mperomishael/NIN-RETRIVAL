@@ -32,6 +32,10 @@ The server route at `app/api/identity/route.ts` uses `NINSLIP_API_KEY` as a Bear
 
 Before enabling production access, confirm the upstream account's permissions, price list, intended customer-facing use and legal basis for each endpoint. Validation, IPE clearance and modification services are intentionally not exposed by the current UI.
 
+## Treasury and hot/cold wallet controls
+
+The super-admin treasury console is available at `/admin/treasury`. It separates company NGN and USDT (BSC) treasury ledgers from customer/agent wallet liabilities, supports independently reviewed NGN deposit entries, checks BSC USDT transaction receipts before recording hot-wallet deposits, and uses two distinct admins for transfer approval. The app does not custody private keys or broadcast transfers; external bank/custody execution remains unconfigured. See [the treasury setup guide](docs/topverify-setup.md).
+
 ## Wallet funding status
 
 The database-backed wallet and server-side request debit/refund ledger are connected. **Payment gateway top-ups are not yet connected**. Funding must remain disabled until a payment provider and signature-verified, idempotent webhook are implemented and tested.
