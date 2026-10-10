@@ -6,7 +6,7 @@ import {
   CircleHelp, Clock3, CreditCard, FileCheck2, Fingerprint, Home, LogOut, Menu,
   Search, ShieldCheck, Smartphone, UserRound, Users, Wallet, X, Zap
 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 type Profile = {
   id: string; full_name: string; phone: string | null; business_name: string | null;
@@ -157,6 +157,8 @@ export default function Home() {
     anchor.href = url; anchor.download = String(slip.fileName || "TopVerify-slip.pdf"); anchor.click();
     URL.revokeObjectURL(url);
   }
+
+  if (!isSupabaseConfigured()) return <main className="tv-config-screen"><div className="tv-brand-mark"><Fingerprint size={25}/></div><span className="tv-form-eyebrow">TOPVERIFY SETUP</span><h1>One last connection step.</h1><p>Add the Supabase URL and publishable key in your deployment environment to activate secure authentication, KYC profiles and agent wallets.</p><code>NEXT_PUBLIC_SUPABASE_URL</code><code>NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY</code><small>Server-side NINSlip and wallet operations also require SUPABASE_SERVICE_ROLE_KEY and NINSLIP_API_KEY.</small></main>;
 
   if (checking) return <main className="tv-loading"><div className="tv-orbit"><Fingerprint size={30}/></div><strong>TopVerify</strong><span>Preparing your secure workspace…</span></main>;
 
