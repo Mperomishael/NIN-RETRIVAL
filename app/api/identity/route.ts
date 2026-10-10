@@ -54,7 +54,7 @@ function safeServicePayload(serviceId: string, body: Record<string, unknown>): {
   if (serviceId === "nin-validation") {
     if (!elevenDigits(str("nin"))) throw new Error("Enter a valid 11-digit NIN.");
     const errorType = str("errorType");
-    if (!["No Record", "Name Correction", "Date of Birth", "Phone Number", "Other"].includes(errorType)) throw new Error("Choose a valid validation issue.");
+    if (errorType.length < 2 || errorType.length > 80) throw new Error("Enter the validation issue label supplied by NINSlip.");
     return { endpoint: "/nin_validation/", payload: { nin: str("nin"), error_type: errorType } };
   }
   if (serviceId === "ipe-clearance") {
