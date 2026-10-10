@@ -47,6 +47,7 @@ export default function Home() {
   const [selected, setSelected] = useState<Service | null>(null);
   const [fields, setFields] = useState<RequestFields>(emptyFields);
   const [requestConsent, setRequestConsent] = useState(false);
+  const [requestPurpose, setRequestPurpose] = useState("Customer onboarding / KYC with consent");
   const [notice, setNotice] = useState("");
   const [noticeError, setNoticeError] = useState(false);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
@@ -125,7 +126,7 @@ export default function Home() {
   }
 
   function openService(service: Service) {
-    setSelected(service); setFields(emptyFields); setRequestConsent(false); setResult(null); setSection("Services"); setNotice("");
+    setSelected(service); setFields(emptyFields); setRequestConsent(false); setRequestPurpose("Customer onboarding / KYC with consent"); setResult(null); setSection("Services"); setNotice("");
   }
 
   async function submitRequest(event: FormEvent) {
@@ -136,7 +137,7 @@ export default function Home() {
     try {
       const response = await fetch("/api/identity", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ serviceId: selected.id, consent: requestConsent, ...fields })
+        body: JSON.stringify({ serviceId: selected.id, purpose: requestPurpose, consent: requestConsent, ...fields })
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "The request could not be completed.");
@@ -183,7 +184,7 @@ export default function Home() {
           </>}
           <label>Email address<input required type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@company.com"/></label>
           <label>Password<input required minLength={8} type="password" autoComplete={authMode === "signin" ? "current-password" : "new-password"} value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 8 characters"/></label>
-          {authMode === "signup" && <label className="tv-terms"><input type="checkbox" checked={acceptedTerms} onChange={e=>setAcceptedTerms(e.target.checked)}/><span>I agree to TopVerify’s acceptable-use rules and privacy notice. I will only request identity information for a lawful, disclosed purpose with the data subject’s authorization; I will not use or disclose it for fraud, harassment, discrimination, impersonation, or any other misuse.</span></label>}
+          {authMode === "signup" && <label className="tv-terms"><input type="checkbox" checked={acceptedTerms} onChange={e=>setAcceptedTerms(e.target.checked)}/><span>I agree to TopVerify’s <a href="/acceptable-use" target="_blank" rel="noreferrer">acceptable-use rules</a> and <a href="/privacy" target="_blank" rel="noreferrer">privacy notice</a>. I will only request identity information for a lawful, disclosed purpose with the data subject’s authorization; I will not use or disclose it for fraud, harassment, discrimination, impersonation, or any other misuse.</span></label>}
           {notice && <div className={noticeError ? "tv-alert tv-alert-error" : "tv-alert"}>{notice}</div>}
           <button className="tv-primary-btn" disabled={authLoading}>{authLoading ? "Please wait…" : authMode === "signin" ? "Sign in securely" : "Submit for review"} <ArrowRight size={17}/></button>
         </form>
@@ -230,6 +231,7 @@ export default function Home() {
               {(selected.id==="bvn-verify" || selected.id==="bvn-slip") && <label>BVN<input inputMode="numeric" maxLength={11} required value={fields.bvn} onChange={e=>setFields({...fields,bvn:e.target.value.replace(/\D/g,"")})} placeholder="Enter 11-digit BVN"/></label>}
               {selected.id==="demographic" && <><div className="tv-two-fields"><label>First name<input required value={fields.firstName} onChange={e=>setFields({...fields,firstName:e.target.value})}/></label><label>Last name<input required value={fields.lastName} onChange={e=>setFields({...fields,lastName:e.target.value})}/></label></div><div className="tv-two-fields"><label>Gender<select value={fields.gender} onChange={e=>setFields({...fields,gender:e.target.value})}><option value="m">Male</option><option value="f">Female</option></select></label><label>Date of birth<input required value={fields.dateOfBirth} onChange={e=>setFields({...fields,dateOfBirth:e.target.value})} placeholder="DD-MM-YYYY"/></label></div></>}
               {(selected.id==="nin-slip" || selected.id==="bvn-slip") && <label>Slip type<select value={fields.slipType} onChange={e=>setFields({...fields,slipType:e.target.value})}><option>Standard Slip</option><option>Premium Slip</option><option>Regular Slip</option><option>Information Slip</option></select></label>}
+              <label>Purpose for this request<select required value={requestPurpose} onChange={e=>setRequestPurpose(e.target.value)}><option>Customer onboarding / KYC with consent</option><option>Data subject requested their own record</option><option>Compliance verification with lawful basis</option></select></label>
               <label className="tv-terms"><input type="checkbox" checked={requestConsent} onChange={e=>setRequestConsent(e.target.checked)}/><span>I confirm I have the data subject’s authorization for this specific request, have explained the purpose, and will only use or share the result for that purpose.</span></label>
               <button className="tv-primary-btn" disabled={requestLoading}>{requestLoading ? "Submitting securely…" : `Submit request · ${money(selected.price_kobo)}`} <ArrowRight size={17}/></button>
               <p className="tv-form-footnote"><ShieldCheck size={14}/> TopVerify checks account approval and wallet balance on the server. Your service fee is refunded if a recorded provider failure occurs.</p>
