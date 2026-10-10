@@ -146,6 +146,14 @@ export async function POST(request: Request) {
       if (error) return NextResponse.json({error:error.message.includes("SECOND_REVIEWER_REQUIRED")?"A different super-admin must review this deposit.":error.message.includes("EVIDENCE_REQUIRED")?"Evidence is required before crediting.":"Deposit review could not be completed."},{status:409});
       return NextResponse.json({ok:true,result:data});
     }
+    if (action === "reject-ngn-deposit") {
+      const id = String(body.depositId || "");
+      const reason = String(body.reason || "").trim();
+      if (!/^[0-9a-f-]{36}$/i.test(id) || reason.length < 8 || reason.length > 500) return NextResponse.json({error:"Provide a valid deposit ID and a rejection reason between 8 and 500 characters."},{status:400});
+      const {data,error}=await admin.rpc("topverify_admin_reject_ngn_deposit",{p_deposit_id:id,p_reviewer_id:actorId,p_reason:reason});
+      if(error) return NextResponse.json({error:error.message.includes("SECOND_REVIEWER_REQUIRED")?"A different super-admin must review this deposit.":"Deposit rejection could not be completed."},{status:409});
+      return NextResponse.json({ok:true,result:data});
+    }
     if (action === "verify-usdt-deposit") {
       const txHash = String(body.txHash || "").trim();
       const verified = await verifyBscDeposit(txHash);
@@ -174,6 +182,14 @@ export async function POST(request: Request) {
       });
       if(error) return NextResponse.json({error:"Could not submit the transfer for approval."},{status:409});
       return NextResponse.json({ok:true,result:data,message:"Transfer proposal created. No funds have moved."});
+    }
+    if (action === "cancel-transfer") {
+      const id = String(body.transferId || "");
+      const reason = String(body.reason || "").trim();
+      if (!/^[0-9a-f-]{36}$/i.test(id) || reason.length < 8 || reason.length > 500) return NextResponse.json({error:"Provide a valid transfer ID and a reason between 8 and 500 characters."},{status:400});
+      const {data,error}=await admin.rpc("topverify_admin_cancel_treasury_transfer",{p_transfer_id:id,p_actor_id:actorId,p_reason:reason});
+      if(error) return NextResponse.json({error:error.message.includes("REQUESTER_CANNOT_CANCEL_APPROVED_TRANSFER")?"The requester cannot cancel an approved transfer; ask another super-admin.":"Transfer cancellation could not be completed."},{status:409});
+      return NextResponse.json({ok:true,result:data,message:"Transfer closed. No funds were moved."});
     }
     if (action === "approve-transfer") {
       const id = String(body.transferId || "");
