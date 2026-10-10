@@ -49,16 +49,17 @@ Keep administrator accounts separately controlled, enable MFA, and never share a
 
 ## NINSlip integration
 
-The server route uses the API key from `NINSLIP_API_KEY` and calls `https://api.ninslip.com` directly. Currently exposed live request types are:
+The server route uses the API key from `NINSLIP_API_KEY` and calls `https://api.ninslip.com` directly. The service catalogue and retail fees are read from Supabase. The current UI exposes these request types:
 
-- NIN verification
-- NIN phone lookup
+- NIN verification and phone-based lookup
 - BVN verification
 - Demographic match
-- NIN PDF slip
-- BVN PDF slip
+- NIN and BVN PDF slips
+- NIN validation submission
+- IPE clearance submission
+- NIN modification submission
 
-Validation, IPE clearance and modification services are intentionally hidden until their account permissions, legal authorization, pricing, and provider response/settlement behavior are confirmed.
+The NINSlip documentation describes validation, IPE clearance and modification as accepted asynchronous requests. TopVerify leaves these requests in `processing` after provider acceptance and displays the provider reference; it does not yet poll the provider's status endpoints automatically. Confirm the NINSlip account has permission for each endpoint and verify its current pricing/response behavior in a test account before enabling production use. Only submit identity or modification requests with appropriate authorization and consent.
 
 ## Wallet funding and Flutterwave
 
