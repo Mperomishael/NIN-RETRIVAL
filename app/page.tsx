@@ -132,7 +132,7 @@ export default function DashboardPage() {
   }, [user?.id, refreshData]);
 
   const filteredServices = useMemo(() => services.filter(s => s.enabled && !["nin-lookup", "nin-slip", "nin-image-report"].includes(s.id) && (s.name + " " + s.description + " " + s.category).toLowerCase().includes(query.toLowerCase())), [services, query]);
-  const serviceIcon = (id: string) => id === "ipe-clearance" ? BadgeCheck : id === "nin-validation" || id === "tracking-id-lookup" ? FileSearch : id === "nin-modification" ? FilePenLine : id === "demographic" ? UserRoundCheck : id.includes("phone") ? Smartphone : id.includes("slip") ? FileCheck2 : id.includes("bvn") ? IdCard : Fingerprint;
+  const serviceIcon = (id: string) => id === "ipe-clearance" ? BadgeCheck : id === "nin-image-report" ? FileImage : id === "nin-validation" || id === "tracking-id-lookup" ? FileSearch : id === "nin-modification" ? FilePenLine : id === "demographic" ? UserRoundCheck : id.includes("phone") ? Smartphone : id.includes("slip") ? FileCheck2 : id.includes("bvn") ? IdCard : Fingerprint;
 
   async function handleAuth(event: FormEvent) {
     event.preventDefault();
