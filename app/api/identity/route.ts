@@ -17,7 +17,7 @@ function adminClient() {
 function safeServicePayload(serviceId: string, body: Record<string, unknown>): { endpoint: string; payload: Record<string, unknown> } {
   const str = (key: string) => typeof body[key] === "string" ? String(body[key]).trim() : "";
   const elevenDigits = (v: string) => /^\d{11}$/.test(v);
-  if (serviceId === "nin-lookup") {
+  if (serviceId === "nin-lookup" || serviceId === "nin-image-report") {
     if (!elevenDigits(str("nin"))) throw new Error("Enter a valid 11-digit NIN.");
     return { endpoint: "/nin/", payload: { number: str("nin") } };
   }
