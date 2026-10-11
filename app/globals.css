@@ -262,3 +262,19 @@
  .tv-auth-3d-scene,.tv-flip-card,.tv-auth-orbit-ring,.tv-button-spinner,.tv-loading .tv-orbit,.tv-loading .tv-orbit svg{animation:none!important}
  .tv-stat-card,.tv-panel,.tv-service-card-large{transition:none!important}
 }
+
+
+@keyframes tv-card-front-flip{
+  0%,35%{transform:translate(-54%,-50%) rotateY(0deg) rotateZ(6deg)}
+  50%,85%{transform:translate(-54%,-50%) rotateY(180deg) rotateZ(6deg)}
+  100%{transform:translate(-54%,-50%) rotateY(360deg) rotateZ(6deg)}
+}
+@keyframes tv-card-back-flip{
+  0%,35%{transform:translate(-42%,-50%) rotateY(180deg) rotateZ(-8deg)}
+  50%,85%{transform:translate(-42%,-50%) rotateY(360deg) rotateZ(-8deg)}
+  100%{transform:translate(-42%,-50%) rotateY(540deg) rotateZ(-8deg)}
+}
+@media(prefers-reduced-motion:reduce){
+  .tv-flip-card-front{transform:translate(-54%,-50%) rotateY(0deg) rotateZ(6deg)!important}
+  .tv-flip-card-back{transform:translate(-42%,-50%) rotateY(180deg) rotateZ(-8deg)!important}
+}
