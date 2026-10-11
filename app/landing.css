@@ -27,3 +27,132 @@
 .tv-price-row .tv-service-enable input{width:14px;height:14px;accent-color:#2856a6}
 .tv-price-row>div>small{display:inline-flex;align-self:flex-start;margin-top:3px}
 @media(max-width:900px){.tv-price-row{flex-wrap:wrap}.tv-price-row>div{flex-basis:100%}.tv-price-row label{flex:1}.tv-price-row input{width:100%}}
+
+
+/* TopVerify workspace: editorial, pattern-led, flat and mobile-first */
+.tv-app{
+  background-color:#f4f7fa!important;
+  background-image:
+    linear-gradient(rgba(31,67,94,.028) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(31,67,94,.028) 1px,transparent 1px)!important;
+  background-size:28px 28px!important;
+  font-family:'DM Sans',Inter,ui-sans-serif,system-ui,sans-serif;
+}
+.tv-main{background:transparent!important;min-width:0}
+.tv-content{perspective:none!important;transform:none!important;transform-style:flat!important}
+.tv-stat-card,.tv-panel,.tv-wallet-hero,.tv-admin-callout,
+.tv-service-card,.tv-service-card-large{
+  transform:none!important;
+  transition:border-color .16s ease,background-color .16s ease!important;
+  box-shadow:0 1px 2px rgba(19,43,67,.025)!important;
+  border:1px solid #dfe6ed!important;
+  border-radius:11px!important;
+}
+.tv-stat-card:hover,.tv-panel:hover,.tv-service-card:hover,.tv-service-card-large:hover{
+  transform:none!important;
+  box-shadow:0 2px 6px rgba(19,43,67,.035)!important;
+  border-color:#cbd7e2!important;
+}
+.tv-stat-card{background:rgba(255,255,255,.97)!important}
+.tv-panel{background:rgba(255,255,255,.985)!important}
+.tv-service-card{background:#fff!important}
+.tv-service-bottom .tv-service-action{display:inline-flex;align-items:center;gap:5px;color:#315a77;font-size:10px;font-weight:700}
+.tv-service-bottom b{display:none!important}
+.tv-page-heading h1{letter-spacing:-.8px}
+.tv-eyebrow{color:#53738d;letter-spacing:1.1px}
+.tv-service-icon,.tv-stat-icon,.tv-wallet-mark,.tv-empty>div,.tv-responsibility-mark{
+  border-radius:9px!important;box-shadow:none!important;
+}
+.tv-service-icon{background:#edf3f7!important;color:#244e6a!important}
+.tv-stat-icon.tv-blue{background:#eaf1f7!important;color:#2b5877!important}
+.tv-stat-icon.tv-purple{background:#f0eef7!important;color:#67588f!important}
+.tv-stat-icon.tv-green{background:#eaf4ef!important;color:#2c7556!important}
+.tv-stat-icon.tv-amber{background:#f7f0e7!important;color:#8c6b3d!important}
+.tv-wallet-hero{background:#173b56!important;box-shadow:none!important}
+.tv-wallet-hero::before,.tv-wallet-hero::after{display:none!important;content:none!important}
+.tv-output-picker{
+  margin:0 0 25px;
+  padding:24px;
+  border:1px solid #dfe6ed;
+  border-radius:12px;
+  background:rgba(255,255,255,.96);
+}
+.tv-output-heading{max-width:680px;margin-bottom:18px}
+.tv-output-heading .tv-eyebrow{margin-bottom:10px}
+.tv-output-heading h2{margin:0;color:#17344d;font-family:Manrope,'DM Sans',sans-serif;font-size:22px;letter-spacing:-.6px}
+.tv-output-heading p{margin:8px 0 0;color:#748496;font-size:12px;line-height:1.7}
+.tv-output-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.tv-output-option{
+  position:relative;display:flex;flex-direction:column;align-items:flex-start;min-width:0;min-height:220px;
+  padding:18px;text-align:left;overflow:hidden;
+  border:1px solid #dce5ec;border-radius:10px;background:#fff;color:#20394d;
+  transition:background-color .16s ease,border-color .16s ease;
+}
+.tv-output-option:hover,.tv-output-option:focus-visible{background:#f8fbfd;border-color:#8eafc4}
+.tv-output-icon{display:grid;place-items:center;width:43px;height:43px;border:1px solid #dce7ee;border-radius:10px;background:#eff5f8;color:#27546f;margin-bottom:15px}
+.tv-output-tag{font-size:9px;font-weight:800;letter-spacing:1px;color:#7890a2;margin-bottom:7px}
+.tv-output-option>strong{font-size:14px;line-height:1.4;color:#1c374c}
+.tv-output-option>p{font-size:11px;line-height:1.7;color:#718394;margin:8px 0 18px;max-width:300px}
+.tv-output-action{display:inline-flex;align-items:center;gap:7px;margin-top:auto;font-size:10px;font-weight:800;color:#245673}
+.tv-output-mini-doc{position:absolute;right:15px;top:17px;width:42px;height:55px;border:1px solid #e0e8ee;border-radius:4px;background:linear-gradient(160deg,#fff,#f3f7fa);padding:19px 6px 0;display:grid;gap:4px;opacity:.65}
+.tv-output-mini-doc i{display:block;height:2px;border-radius:2px;background:#cbd9e3}
+.tv-searchbar{border:1px solid #dfe6ed!important;background:#fff!important;box-shadow:none!important}
+.tv-catalog-grid{margin-top:14px}
+.tv-request-layout{align-items:start}
+.tv-order-panel{position:sticky;top:88px}
+.tv-order-price-hidden{display:flex;align-items:flex-start;gap:9px;padding:14px 0;color:#748496;line-height:1.7}
+.tv-order-price-hidden svg{flex-shrink:0;color:#4b7b91;margin-top:2px}
+.tv-price-confirmation{border:1px solid #cddfe8;border-radius:10px;background:#f7fbfd;padding:15px;display:grid;gap:12px}
+.tv-price-confirmation-top{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.tv-price-confirmation-top>div{display:grid;gap:5px}
+.tv-price-confirmation-top>div>span{font-size:9px;font-weight:800;letter-spacing:1.1px;color:#6d8798}
+.tv-price-confirmation-top>div>strong{font-family:Manrope,'DM Sans',sans-serif;font-size:27px;letter-spacing:-.7px;color:#173b56}
+.tv-confirmation-check{display:grid;place-items:center;width:38px;height:38px;border:1px solid #d6e5e9;border-radius:9px;background:#edf5f5;color:#2d6c69}
+.tv-price-confirmation>p{margin:0;color:#667b8d;font-size:11px;line-height:1.7}
+.tv-price-confirmation>p strong{color:#28495e}
+.tv-confirmation-actions{display:flex;flex-wrap:wrap;gap:9px}
+.tv-confirmation-actions .tv-primary-btn{flex:1;justify-content:center}
+.tv-confirmation-actions .tv-button-secondary{min-height:43px;padding:0 13px}
+.tv-image-report{margin-top:18px;border:1px solid #dfe6ed;border-radius:11px;background:#fff;overflow:hidden}
+.tv-image-report-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;padding:19px 20px;background:#f4f8fa;border-bottom:1px solid #e1e8ed}
+.tv-image-report-head>div>span{font-size:9px;font-weight:800;letter-spacing:1.1px;color:#658296}
+.tv-image-report-head h3{margin:8px 0 5px;font-family:Manrope,'DM Sans',sans-serif;font-size:17px;color:#1d3c51}
+.tv-image-report-head p{margin:0;color:#738697;font-size:10px;overflow-wrap:anywhere}
+.tv-image-report-seal{display:grid;place-items:center;flex-shrink:0;width:38px;height:38px;border:1px solid #d6e2e8;border-radius:9px;background:#fff;color:#2b6276}
+.tv-image-report-body{display:grid;grid-template-columns:minmax(140px,.55fr) minmax(0,1.45fr);gap:18px;padding:20px}
+.tv-image-report-photo{min-height:175px;display:flex;align-items:center;justify-content:center;border:1px solid #e1e8ed;border-radius:8px;background:#f7f9fb;overflow:hidden}
+.tv-image-report-photo img{display:block;width:100%;height:100%;max-height:300px;object-fit:contain}
+.tv-image-report-no-photo{display:flex;flex-direction:column;align-items:center;gap:10px;padding:18px;text-align:center;color:#7d91a0}
+.tv-image-report-no-photo span{font-size:10px;line-height:1.6}
+.tv-image-report-body dl{margin:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-content:start;gap:0 16px}
+.tv-image-report-body dl>div{min-width:0;padding:10px 0;border-bottom:1px solid #edf1f4}
+.tv-image-report-body dt{font-size:9px;text-transform:capitalize;color:#8293a1;margin-bottom:5px;overflow-wrap:anywhere}
+.tv-image-report-body dd{margin:0;font-size:11px;line-height:1.5;color:#29485d;font-weight:650;overflow-wrap:anywhere}
+.tv-image-report-foot{margin:0;padding:13px 20px;border-top:1px solid #e7edf1;color:#788b99;font-size:9px;line-height:1.7}
+.tv-result-json{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%;overflow:auto}
+@media(max-width:900px){
+  .tv-output-picker{padding:19px}
+  .tv-output-grid{grid-template-columns:1fr}
+  .tv-output-option{min-height:0;padding:16px}
+  .tv-output-option>p{max-width:none;margin-bottom:15px}
+  .tv-order-panel{position:static}
+  .tv-image-report-body{grid-template-columns:1fr}
+  .tv-image-report-photo{min-height:150px;max-height:260px}
+}
+@media(max-width:520px){
+  .tv-output-picker{padding:15px;margin-bottom:18px}
+  .tv-output-heading h2{font-size:19px}
+  .tv-output-heading p{font-size:11px}
+  .tv-output-option{padding:14px}
+  .tv-output-icon{width:39px;height:39px;margin-bottom:12px}
+  .tv-price-confirmation-top>div>strong{font-size:24px}
+  .tv-confirmation-actions{display:grid;grid-template-columns:1fr}
+  .tv-confirmation-actions .tv-primary-btn{grid-row:1}
+  .tv-image-report-head{padding:15px}
+  .tv-image-report-body{padding:14px}
+  .tv-image-report-body dl{grid-template-columns:1fr}
+  .tv-image-report-foot{padding:12px 15px}
+}
+@media(prefers-reduced-motion:reduce){
+  .tv-output-option,.tv-stat-card,.tv-panel,.tv-service-card,.tv-service-card-large{transition:none!important}
+}
