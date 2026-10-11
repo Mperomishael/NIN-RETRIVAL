@@ -75,10 +75,10 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let alive = true;
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       if (!alive) return;
-      if (data.user) { setUser({ id: data.user.id, email: data.user.email }); void refreshData(data.user.id); }
-      setChecking(false);
+      if (data.user) { setUser({ id: data.user.id, email: data.user.email }); await refreshData(data.user.id); }
+      if (alive) setChecking(false);
     }).catch(() => { if (alive) setChecking(false); });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       const nextUser = session?.user;
@@ -401,5 +401,5 @@ function AdminPricing({ supabase, services, onRefresh, onNotice }: { supabase: R
     else{onNotice("Service settings saved.");onRefresh();}
     setBusy("");
   }
-  return <><div className="tv-page-heading"><div><span className="tv-eyebrow"><CreditCard size={13}/> PLATFORM CONTROL</span><h1>Service pricing</h1><p>Set TopVerify’s retail fee separately from the upstream provider cost. New services stay hidden until you set a fee and enable them.</p></div></div><section className="tv-panel tv-pricing-list">{services.map(service=><div className="tv-price-row" key={service.id}><div><strong>{service.name}</strong><span>{service.description}</span><small className={service.enabled?"tv-table-status tv-table-success":"tv-table-status tv-table-pending"}>{enabledValues[service.id] ?? service.enabled ? "Enabled" : "Hidden until configured"}</small></div><label>Retail fee (NGN)<input type="number" min="0" value={prices[service.id]??String(service.price_kobo/100)} onChange={e=>setPrices({...prices,[service.id]:e.target.value})}/></label><label className="tv-service-enable"><input type="checkbox" checked={enabledValues[service.id] ?? service.enabled} onChange={e=>setEnabledValues({...enabledValues,[service.id]:e.target.checked})}/> Visible to customers</label><button disabled={busy===service.id} onClick={()=>void save(service)}>{busy===service.id?"Saving…":"Save settings"}</button></div>)}</section></>;
+  return <><div className="tv-page-heading"><div><span className="tv-eyebrow"><CreditCard size={13}/> PLATFORM CONTROL</span><h1>Service pricing</h1><p>Set TopVerify’s retail fee separately from the upstream provider cost. New services stay hidden until you set a fee and enable them.</p></div></div><section className="tv-panel tv-pricing-list">{services.map(service=><div className="tv-price-row" key={service.id}><div><strong>{service.name}</strong><span>{service.description}</span><small className={service.enabled?"tv-table-status tv-table-success":"tv-table-status tv-table-pending"}>{enabledValues[service.id] ?? service.enabled ? "Enabled" : "Hidden until configured"}</small></div><label>Retail fee (NGN)<input type="number" min="0" value={prices[service.id]??String(service.price_kobo/100)} onChange={e=>setPrices({...prices,[service.id]:e.target.value})}/></label><label className="tv-service-enable"><input type="checkbox" checked={enabledValues[service.id] ?? service.enabled} onChange={e=>setEnabledValues({...enabledValues,[service.id]:e.target.checked})}/> Visible to customers</label><button disabled={busy===service.id} onClick={()=>void save(service)}>{busy===service.id?<><span className="tv-button-spinner" aria-hidden="true"/> Saving…</>:"Save settings"}</button></div>)}</section></>;
 }
