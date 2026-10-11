@@ -99,6 +99,7 @@ create trigger on_auth_user_created after insert on auth.users for each row exec
 
 insert into public.services(id,name,description,category,price_kobo) values
 ('nin-lookup','NIN Verification','Verify a NIN using an authorized source','Verification',35000),
+('nin-image-report','NIN Image & Written Report','Verification result formatted as a readable report with a provider-returned image when available','Verification',35000),
 ('phone-lookup','NIN Phone Lookup','Check a phone association with authorization','Verification',45000),
 ('bvn-verify','BVN Verification','Validate a BVN using an authorized source','Verification',40000),
 ('demographic','Demographic Match','Compare supplied details with an authorized response','Verification',50000),
