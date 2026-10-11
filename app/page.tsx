@@ -367,7 +367,7 @@ export default function DashboardPage() {
               <p className="tv-form-footnote"><ShieldCheck size={14}/> TopVerify checks account approval and wallet balance on the server. Your service fee is refunded if a recorded provider failure occurs.</p>
             </form>}
           </section><aside className="tv-panel tv-order-panel"><span className="tv-order-eyebrow">REQUEST SUMMARY</span><div className="tv-order-service"><span className="tv-service-icon"><SelectedIcon size={21}/></span><div><strong>{selected.name}</strong><span>{selected.category}</span></div></div>{showPriceReview ? <><div className="tv-order-line"><span>TopVerify service fee</span><strong>{money(selected.price_kobo)}</strong></div><div className="tv-order-total"><span>Amount to pay</span><strong>{money(selected.price_kobo)}</strong></div><div className="tv-order-balance"><span>Wallet balance</span><strong>{money(Number(wallet?.balance_kobo || 0))}</strong></div><p className="tv-order-note">Your wallet is charged only after you confirm the amount.</p></> : <div className="tv-order-note tv-order-price-hidden"><ShieldCheck size={15}/><span>Enter the required details and choose “Review amount” to see your exact fee before confirming.</span></div>}</aside>
-          {result && <section className="tv-panel tv-result-panel"><div className="tv-panel-heading"><div><h2>{result.processing ? "Request submitted" : "Request result"}</h2><p>Reference: {String(result.reference || "")}</p></div><span className={result.processing ? "tv-table-status tv-table-pending" : "tv-complete-tag"}>{result.processing ? "Processing" : <><Check size={14}/> Completed</>}</span></div>{typeof result.message === "string" ? <p>{result.message}</p> : null}{result.processing === true ? <p className="tv-form-footnote">The provider accepted this request. It may take time to complete; keep the reference for follow-up. Your wallet fee has been charged for the accepted submission. Provider reference: {String(result.providerReference || "pending")}</p> : null}{result.slip !== null && typeof result.slip === "object" ? <button className="tv-primary-btn tv-download-btn" onClick={()=>downloadSlip(result.slip as Record<string,unknown>)}><ArrowDownToLine size={17}/> Download provider PDF slip</button> : null}{result.result !== null && typeof result.result === "object" ? <pre className="tv-result-json">{JSON.stringify(result.result,null,2)}</pre> : null}<p className="tv-form-footnote"><ShieldCheck size={14}/> This is sensitive personal information. Download or share it only for the authorized purpose.</p></section>}
+          {result && <section className="tv-panel tv-result-panel"><div className="tv-panel-heading"><div><h2>{result.processing ? "Request submitted" : "Request result"}</h2><p>Reference: {String(result.reference || "")}</p></div><span className={result.processing ? "tv-table-status tv-table-pending" : "tv-complete-tag"}>{result.processing ? "Processing" : <><Check size={14}/> Completed</>}</span></div>{typeof result.message === "string" ? <p>{result.message}</p> : null}{result.processing === true ? <p className="tv-form-footnote">The provider accepted this request. It may take time to complete; keep the reference for follow-up. Your wallet fee has been charged for the accepted submission. Provider reference: {String(result.providerReference || "pending")}</p> : null}{result.slip !== null && typeof result.slip === "object" ? <button className="tv-primary-btn tv-download-btn" onClick={()=>downloadSlip(result.slip as Record<string,unknown>)}><ArrowDownToLine size={17}/> Download provider PDF slip</button> : null}{result.result !== null && typeof result.result === "object" ? selected?.id === "nin-image-report" ? <NinImageReport data={result.result as Record<string, unknown>} reference={String(result.reference || "")}/> : <pre className="tv-result-json">{JSON.stringify(result.result,null,2)}</pre> : null}<p className="tv-form-footnote"><ShieldCheck size={14}/> This is sensitive personal information. Download or share it only for the authorized purpose.</p></section>}
           </div>}
         </>}
         {section === "Request history" && <><div className="tv-page-heading"><div><span className="tv-eyebrow"><Clock3 size={13}/> AUDITABLE ACTIVITY</span><h1>Request history</h1><p>Your latest identity-service requests and provider references.</p></div><button className="tv-button-primary" onClick={()=>setSection("Services")}><FileCheck2 size={16}/> New request</button></div><section className="tv-panel tv-history-panel"><RequestTable history={history} services={services}/></section></>}
@@ -379,6 +379,31 @@ export default function DashboardPage() {
       </div>
     </section>
   </main>;
+}
+
+function NinImageReport({ data, reference }: { data: Record<string, unknown>; reference: string }) {
+  const imageKeys = ["photo_url", "image_url", "photo", "image", "picture", "portrait", "face_image"];
+  const rawImage = imageKeys.map(key => data[key]).find(value => typeof value === "string" && value.length > 80) as string | undefined;
+  const imageSrc = rawImage
+    ? rawImage.startsWith("data:image/") || rawImage.startsWith("https://")
+      ? rawImage
+      : /^[A-Za-z0-9+/=]+$/.test(rawImage) && rawImage.length > 1000
+        ? `data:image/jpeg;base64,${rawImage}`
+        : null
+    : null;
+  const entries = Object.entries(data).filter(([key, value]) =>
+    !imageKeys.includes(key) && !["signature", "signature_url", "signature_base64"].includes(key) &&
+    (typeof value === "string" || typeof value === "number" || typeof value === "boolean") &&
+    String(value).trim().length > 0
+  );
+  return <div className="tv-image-report">
+    <div className="tv-image-report-head"><div><span>TOPVERIFY / VERIFICATION REPORT</span><h3>Identity verification summary</h3><p>Reference: {reference || "Available in request history"}</p></div><span className="tv-image-report-seal"><ShieldCheck size={20}/></span></div>
+    <div className="tv-image-report-body">
+      <div className="tv-image-report-photo">{imageSrc ? <img src={imageSrc} alt="Image returned by the identity provider" referrerPolicy="no-referrer"/> : <div className="tv-image-report-no-photo"><FileImage size={28}/><span>No image was supplied by the provider</span></div>}</div>
+      <dl>{entries.length ? entries.map(([key, value]) => <div key={key}><dt>{key.replace(/[_-]+/g, " ")}</dt><dd>{String(value)}</dd></div>) : <div><dt>Report</dt><dd>The provider returned no displayable fields. Check the request reference and provider response.</dd></div>}</dl>
+    </div>
+    <p className="tv-image-report-foot">Provider-supplied information only. This report is not a government-issued identity document. Keep it private and use it only for the authorized purpose.</p>
+  </div>;
 }
 
 function RequestTable({ history, services }: { history: RequestRow[]; services: Service[] }) {
