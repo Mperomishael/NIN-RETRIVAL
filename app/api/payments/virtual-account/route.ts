@@ -78,7 +78,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Your permanent account setup is already processing. Refresh shortly." }, { status: 409 });
   }
 
-  const txRef = `TVVA-${user.id.replace(/-/g, "")}-${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+  const txRef = `TVVA-${user.id}-${randomUUID().replace(/-/g, "").slice(0, 12)}`;
   if (existing) {
     const { error } = await admin.from("virtual_accounts").update({
       tx_ref: txRef, status: "provisioning", account_number: null, bank_name: null,
