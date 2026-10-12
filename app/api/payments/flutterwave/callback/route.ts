@@ -26,7 +26,14 @@ export async function GET(request: Request) {
   try {
     await verifyAndCreditFlutterwaveTopup(txRef, transactionId);
     return destination(request, "success", txRef);
-  } catch {
+  } catch (error) {
+    // Keep the customer-facing response generic, but record a safe diagnostic
+    // so a verified payment that failed reconciliation can be investigated.
+    console.error("[TopVerify Flutterwave callback] Reconciliation failed", {
+      txRef,
+      transactionId,
+      reason: error instanceof Error ? error.message.slice(0, 180) : "Unknown reconciliation error",
+    });
     // The webhook may still reconcile a legitimate payment; never credit based on the redirect alone.
     return destination(request, "pending", txRef);
   }
