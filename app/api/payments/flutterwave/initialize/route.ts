@@ -72,6 +72,7 @@ export async function POST(request: Request) {
     status: "pending",
   });
   if (insertError) {
+    console.error("[TopVerify wallet funding] Could not create pending top-up:", insertError.message);
     return NextResponse.json({ error: "Unable to start this wallet top-up. Please try again." }, { status: 500 });
   }
 
@@ -98,13 +99,13 @@ export async function POST(request: Request) {
         currency: "NGN",
         redirect_url: `${siteUrl}/api/payments/flutterwave/callback`,
         customer,
-        payment_options: "card, banktransfer, ussd",
+        // Use payment methods configured and enabled in the merchant dashboard.
         customizations: {
           title: "TopVerify Wallet",
           description: "Fund your TopVerify NGN wallet",
         },
         meta: { topverify_tx_ref: txRef },
-        configuration: { session_duration: 30, max_retry_attempt: 3 },
+        configurations: { session_duration: 30, max_retry_attempt: 3 },
       }),
       cache: "no-store",
       signal: AbortSignal.timeout(15000),
@@ -112,6 +113,7 @@ export async function POST(request: Request) {
 
     const result = await paymentResponse.json().catch(() => ({})) as {
       status?: string;
+      message?: string;
       data?: { link?: string };
     };
     const checkoutUrl = result.data?.link;
@@ -121,13 +123,29 @@ export async function POST(request: Request) {
       typeof checkoutUrl !== "string" ||
       !checkoutUrl.startsWith("https://checkout.flutterwave.com/")
     ) {
+      const providerMessage = typeof result.message === "string"
+        ? result.message.replace(/[\r\n\t]+/g, " ").slice(0, 220)
+        : "Flutterwave returned an invalid checkout response.";
+      console.error("[TopVerify wallet funding] Flutterwave rejected checkout creation:", {
+        httpStatus: paymentResponse.status,
+        providerStatus: result.status ?? "missing",
+        providerMessage,
+        txRef,
+      });
       await admin.from("wallet_topups").update({ status: "failed", updated_at: new Date().toISOString() }).eq("tx_ref", txRef).eq("status", "pending");
-      return NextResponse.json({ error: "Flutterwave could not start checkout. Please try again." }, { status: 502 });
+      return NextResponse.json({
+        error: `Flutterwave checkout failed: ${providerMessage}`,
+        code: "FLUTTERWAVE_CHECKOUT_REJECTED",
+      }, { status: 502 });
     }
 
     return NextResponse.json({ checkoutUrl, txRef });
-  } catch {
+  } catch (error) {
+    console.error("[TopVerify wallet funding] Could not reach Flutterwave:", {
+      txRef,
+      message: error instanceof Error ? error.message.slice(0, 180) : "Unknown network error",
+    });
     await admin.from("wallet_topups").update({ status: "failed", updated_at: new Date().toISOString() }).eq("tx_ref", txRef).eq("status", "pending");
-    return NextResponse.json({ error: "Flutterwave checkout could not be reached. Please try again." }, { status: 502 });
+    return NextResponse.json({ error: "Flutterwave checkout could not be reached. Check the deployment logs or try again shortly.", code: "FLUTTERWAVE_NETWORK_ERROR" }, { status: 502 });
   }
 }
