@@ -86,7 +86,8 @@ export default function DashboardPage() {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || "Unable to check your deposit.");
       flash(payload.message || "Deposit check completed.");
-      await refreshData();
+      if (!user?.id) throw new Error("Please sign in again to refresh your wallet.");
+      await refreshData(user.id);
     } catch (error) {
       flash(error instanceof Error ? error.message : "Unable to check your deposit.", true);
     } finally {
