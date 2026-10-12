@@ -1,20 +1,34 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { verifyAndCreditFlutterwaveTopup, verifyAndCreditVirtualAccountPayment } from "@/lib/payments/flutterwave";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function matchesSecret(received: string | null, expected: string) {
+function constantTimeEqual(received: string | null, expected: string) {
   if (!received) return false;
   const a = Buffer.from(received);
   const b = Buffer.from(expected);
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+function isValidWebhook(rawBody: string, request: Request, secretHash: string) {
+  // Current Flutterwave webhooks use an HMAC-SHA256 Base64 signature.
+  const signature = request.headers.get("flutterwave-signature");
+  const expectedSignature = createHmac("sha256", secretHash).update(rawBody).digest("base64");
+  if (constantTimeEqual(signature, expectedSignature)) return true;
+
+  // Retain compatibility with legacy v3 dashboard configurations that send verif-hash.
+  return constantTimeEqual(request.headers.get("verif-hash"), secretHash);
+}
+
 export async function POST(request: Request) {
   const secretHash = process.env.FLUTTERWAVE_WEBHOOK_SECRET_HASH;
-  if (!secretHash || !matchesSecret(request.headers.get("verif-hash"), secretHash)) {
+  let rawBody: string;
+  try { rawBody = await request.text(); } catch {
+    return NextResponse.json({ error: "Invalid webhook payload." }, { status: 400 });
+  }
+  if (!secretHash || !isValidWebhook(rawBody, request, secretHash)) {
     return NextResponse.json({ error: "Invalid webhook signature." }, { status: 401 });
   }
 
@@ -22,7 +36,7 @@ export async function POST(request: Request) {
     event?: string;
     data?: { id?: string | number; tx_ref?: string; status?: string };
   };
-  try { payload = await request.json(); } catch {
+  try { payload = JSON.parse(rawBody); } catch {
     return NextResponse.json({ error: "Invalid webhook payload." }, { status: 400 });
   }
 
