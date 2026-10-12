@@ -122,8 +122,12 @@ export async function POST(request: Request) {
       // Trust only Flutterwave's checkout host over HTTPS. Flutterwave may
       // adjust the hosted-link path, so do not reject a valid link solely
       // because its pathname differs from the current documentation example.
+      const checkoutHost = parsed.hostname.toLowerCase();
+      // Flutterwave uses checkout.flutterwave.com for live checkout and
+      // checkout-v2.dev-flutterwave.com for its hosted test checkout.
+      // Keep an exact hostname allowlist; never accept arbitrary provider URLs.
       validCheckoutUrl = parsed.protocol === "https:" &&
-        parsed.hostname.toLowerCase() === "checkout.flutterwave.com" &&
+        ["checkout.flutterwave.com", "checkout-v2.dev-flutterwave.com"].includes(checkoutHost) &&
         !parsed.username && !parsed.password;
     } catch {
       validCheckoutUrl = false;
