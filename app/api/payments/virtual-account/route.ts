@@ -119,7 +119,7 @@ export async function POST(request: Request) {
         firstname,
         lastname,
         phonenumber: profile.phone || undefined,
-        narration: `TopVerify - ${firstname}`,
+        narration: (profile.full_name || firstname).trim().slice(0, 35),
         bank_code: "090567",
       }),
       cache: "no-store",
