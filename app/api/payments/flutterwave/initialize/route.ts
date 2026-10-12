@@ -131,7 +131,11 @@ export async function POST(request: Request) {
 
     // "Hosted Link" is Flutterwave's normal success message, not an error.
     const providerSucceeded = result.status?.toLowerCase() === "success";
-    if (!paymentResponse.ok || !providerSucceeded || !validCheckoutUrl) {
+    // Flutterwave's JSON status and hosted link are the meaningful checkout
+    // result. Some intermediaries can produce a non-2xx HTTP status even when
+    // the provider body reports success, so do not discard a valid hosted URL
+    // solely because response.ok is false.
+    if (!providerSucceeded || !validCheckoutUrl) {
       const providerMessage = typeof result.message === "string"
         ? result.message.replace(/[\r\n\t]+/g, " ").slice(0, 220)
         : "Flutterwave returned no message.";
@@ -146,9 +150,12 @@ export async function POST(request: Request) {
       });
       await admin.from("wallet_topups").update({ status: "failed", updated_at: new Date().toISOString() }).eq("tx_ref", txRef).eq("status", "pending");
       const errorMessage = providerSucceeded && providerMessage.toLowerCase() === "hosted link"
-        ? "Flutterwave reported success but TopVerify could not validate the checkout URL. Please retry once; if it repeats, check the latest Vercel function log."
+        ? `Flutterwave reported success, but TopVerify could not validate the checkout URL (HTTP ${paymentResponse.status}; link ${checkoutUrl ? "present" : "missing"}; host ${(() => { try { return new URL(checkoutUrl).hostname; } catch { return "unreadable"; } })()}).`
         : `Flutterwave checkout could not be created: ${providerMessage}`;
-      return NextResponse.json({ error: errorMessage, code: "FLUTTERWAVE_CHECKOUT_REJECTED" }, { status: 502 });
+      return NextResponse.json({
+        error: errorMessage,
+        code: "FLUTTERWAVE_CHECKOUT_REJECTED",
+      }, { status: 502 });
     }
 
     return NextResponse.json({ checkoutUrl, txRef });
