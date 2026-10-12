@@ -119,9 +119,12 @@ export async function POST(request: Request) {
     let validCheckoutUrl = false;
     try {
       const parsed = new URL(checkoutUrl);
+      // Trust only Flutterwave's checkout host over HTTPS. Flutterwave may
+      // adjust the hosted-link path, so do not reject a valid link solely
+      // because its pathname differs from the current documentation example.
       validCheckoutUrl = parsed.protocol === "https:" &&
-        parsed.hostname === "checkout.flutterwave.com" &&
-        parsed.pathname.startsWith("/v3/hosted/pay/");
+        parsed.hostname.toLowerCase() === "checkout.flutterwave.com" &&
+        !parsed.username && !parsed.password;
     } catch {
       validCheckoutUrl = false;
     }
@@ -138,6 +141,7 @@ export async function POST(request: Request) {
         providerMessage,
         hasLink: Boolean(checkoutUrl),
         linkHost: (() => { try { return new URL(checkoutUrl).hostname; } catch { return "missing-or-invalid"; } })(),
+        linkPath: (() => { try { return new URL(checkoutUrl).pathname.slice(0, 100); } catch { return "missing-or-invalid"; } })(),
         txRef,
       });
       await admin.from("wallet_topups").update({ status: "failed", updated_at: new Date().toISOString() }).eq("tx_ref", txRef).eq("status", "pending");
