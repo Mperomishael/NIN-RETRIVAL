@@ -211,8 +211,14 @@ export default function DashboardPage() {
         if (data.session && data.user) {
           setUser({ id: data.user.id, email: data.user.email });
           await refreshData(data.user.id);
-          try { await setupDepositAccount(registrationNin, acceptedNinSharing); } catch (accountError) { flash("Account created, but permanent deposit setup needs attention: " + (accountError instanceof Error ? accountError.message : "Please retry in Wallet.") + " You can use hosted payment meanwhile.", true); }
-          flash("Registration received. Your account is pending TopVerify review.");
+          let registrationMessage = "Registration received. Your account is pending TopVerify review.";
+          let registrationError = false;
+          try { await setupDepositAccount(registrationNin, acceptedNinSharing); }
+          catch (accountError) {
+            registrationMessage += " Permanent deposit setup needs attention: " + (accountError instanceof Error ? accountError.message : "Please retry in Wallet.") + " You can use hosted payment meanwhile.";
+            registrationError = true;
+          }
+          flash(registrationMessage, registrationError);
         } else {
           flash("Registration received. Check your email to confirm the account, then sign in. For security, TopVerify does not store your NIN while you wait; enter it again in Wallet to create your permanent deposit account.");
           setAuthMode("signin");
