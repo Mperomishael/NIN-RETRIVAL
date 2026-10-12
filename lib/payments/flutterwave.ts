@@ -34,7 +34,13 @@ export async function verifyAndCreditFlutterwaveTopup(txRef: string, transaction
   if (topupError) throw new Error("Unable to load the wallet top-up.");
   if (!topup) throw new Error("Wallet top-up not found.");
   if (topup.status === "credited") return { alreadyCredited: true };
-  if (topup.status !== "pending") throw new Error("Wallet top-up is not pending.");
+  // A checkout attempt may have been marked failed by a transient provider/link
+  // response even though Flutterwave later completed it. Never revive it until
+  // the provider transaction below has been independently verified.
+  if (topup.status !== "pending" && topup.status !== "failed") {
+    throw new Error("Wallet top-up is not eligible for reconciliation.");
+  }
+  const wasMarkedFailed = topup.status === "failed";
 
   const verifyResponse = await fetch(
     `https://api.flutterwave.com/v3/transactions/${encodeURIComponent(transactionId)}/verify`,
@@ -65,6 +71,18 @@ export async function verifyAndCreditFlutterwaveTopup(txRef: string, transaction
     paidKobo !== Number(topup.amount_kobo)
   ) {
     throw new Error("Flutterwave transaction details did not match the pending top-up.");
+  }
+
+  if (wasMarkedFailed) {
+    const { data: reopened, error: reopenError } = await admin.from("wallet_topups")
+      .update({ status: "pending", updated_at: new Date().toISOString() })
+      .eq("tx_ref", txRef).eq("status", "failed").select("tx_ref").maybeSingle();
+    if (reopenError) throw new Error("Verified payment could not be reopened for wallet reconciliation.");
+    if (!reopened) {
+      const { data: current } = await admin.from("wallet_topups").select("status").eq("tx_ref", txRef).maybeSingle();
+      if (current?.status === "credited") return { alreadyCredited: true };
+      if (current?.status !== "pending") throw new Error("Wallet top-up status changed during reconciliation.");
+    }
   }
 
   const { data: creditResult, error: creditError } = await admin.rpc("topverify_credit_flutterwave_topup", {
