@@ -173,6 +173,20 @@ export async function verifyAndCreditVirtualAccountPayment(accountTxRef: string,
     throw new Error("Virtual-account payment amount does not match the funding record.");
   }
 
+  if (existing.data?.status === "failed") {
+    const { data: reopened, error: reopenError } = await admin.from("wallet_topups")
+      .update({ status: "pending", updated_at: new Date().toISOString() })
+      .eq("provider_reference", transactionId).eq("status", "failed")
+      .select("tx_ref").maybeSingle();
+    if (reopenError) throw new Error("Verified virtual-account payment could not be reopened for reconciliation.");
+    if (!reopened) {
+      const { data: current } = await admin.from("wallet_topups")
+        .select("tx_ref,status").eq("provider_reference", transactionId).maybeSingle();
+      if (current?.status === "credited") return { alreadyCredited: true };
+      if (current?.status !== "pending") throw new Error("Virtual-account top-up status changed during reconciliation.");
+    }
+  }
+
   let topupRef = existing.data?.tx_ref;
   if (!topupRef) {
     topupRef = `TVW-${randomUUID()}`;
