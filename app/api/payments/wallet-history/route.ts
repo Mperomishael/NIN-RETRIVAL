@@ -21,20 +21,25 @@ export async function GET() {
   const admin = createSupabaseAdminClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+  const columns = "id,tx_ref,amount_kobo,currency,status,created_at,updated_at,credited_at,provider_reference";
 
-  const { data, error } = await admin
-    .from("wallet_topups")
-    .select("id,tx_ref,amount_kobo,currency,status,created_at,updated_at,credited_at,provider_reference,flutterwave_transaction_id")
-    .eq("user_id", authData.user.id)
-    .order("created_at", { ascending: false })
-    .limit(100);
+  // Keep every pending deposit visible, plus the latest 50 resolved deposits.
+  const [pendingResult, resolvedResult] = await Promise.all([
+    admin.from("wallet_topups").select(columns).eq("user_id", authData.user.id)
+      .eq("status", "pending").order("created_at", { ascending: false }),
+    admin.from("wallet_topups").select(columns).eq("user_id", authData.user.id)
+      .in("status", ["credited", "failed"]).order("created_at", { ascending: false }).limit(50),
+  ]);
 
-  if (error) {
-    console.error("[TopVerify wallet history] Could not load funding history:", error.message);
+  if (pendingResult.error || resolvedResult.error) {
+    console.error("[TopVerify wallet history] Could not load funding history:", pendingResult.error?.message ?? resolvedResult.error?.message);
     return NextResponse.json({ error: "Unable to load wallet funding history." }, { status: 500 });
   }
 
-  return NextResponse.json({ topups: data ?? [] }, {
+  const topups = [...(pendingResult.data ?? []), ...(resolvedResult.data ?? [])]
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  return NextResponse.json({ topups }, {
     headers: { "Cache-Control": "private, no-store, max-age=0" },
   });
 }
