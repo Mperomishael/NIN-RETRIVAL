@@ -63,11 +63,10 @@ export async function POST(request: Request) {
   }
 
   const txRef = `TVW-${crypto.randomUUID()}`;
-  const amountKobo = amountNaira * 100;
   const { error: insertError } = await admin.from("wallet_topups").insert({
     user_id: authData.user.id,
     tx_ref: txRef,
-    amount_kobo: amountKobo,
+    amount_kobo: amountNaira * 100,
     currency: "NGN",
     status: "pending",
   });
@@ -99,7 +98,6 @@ export async function POST(request: Request) {
         currency: "NGN",
         redirect_url: `${siteUrl}/api/payments/flutterwave/callback`,
         customer,
-        // Use payment methods configured and enabled in the merchant dashboard.
         customizations: {
           title: "TopVerify Wallet",
           description: "Fund your TopVerify NGN wallet",
@@ -114,29 +112,39 @@ export async function POST(request: Request) {
     const result = await paymentResponse.json().catch(() => ({})) as {
       status?: string;
       message?: string;
-      data?: { link?: string };
+      data?: { link?: string; checkout_url?: string };
     };
-    const checkoutUrl = result.data?.link;
-    if (
-      !paymentResponse.ok ||
-      result.status !== "success" ||
-      typeof checkoutUrl !== "string" ||
-      !checkoutUrl.startsWith("https://checkout.flutterwave.com/")
-    ) {
+    const rawLink = result.data?.link ?? result.data?.checkout_url;
+    const checkoutUrl = typeof rawLink === "string" ? rawLink.trim() : "";
+    let validCheckoutUrl = false;
+    try {
+      const parsed = new URL(checkoutUrl);
+      validCheckoutUrl = parsed.protocol === "https:" &&
+        parsed.hostname === "checkout.flutterwave.com" &&
+        parsed.pathname.startsWith("/v3/hosted/pay/");
+    } catch {
+      validCheckoutUrl = false;
+    }
+
+    // "Hosted Link" is Flutterwave's normal success message, not an error.
+    const providerSucceeded = result.status?.toLowerCase() === "success";
+    if (!paymentResponse.ok || !providerSucceeded || !validCheckoutUrl) {
       const providerMessage = typeof result.message === "string"
         ? result.message.replace(/[\r\n\t]+/g, " ").slice(0, 220)
-        : "Flutterwave returned an invalid checkout response.";
-      console.error("[TopVerify wallet funding] Flutterwave rejected checkout creation:", {
+        : "Flutterwave returned no message.";
+      console.error("[TopVerify wallet funding] Checkout creation did not return a usable hosted link:", {
         httpStatus: paymentResponse.status,
         providerStatus: result.status ?? "missing",
         providerMessage,
+        hasLink: Boolean(checkoutUrl),
+        linkHost: (() => { try { return new URL(checkoutUrl).hostname; } catch { return "missing-or-invalid"; } })(),
         txRef,
       });
       await admin.from("wallet_topups").update({ status: "failed", updated_at: new Date().toISOString() }).eq("tx_ref", txRef).eq("status", "pending");
-      return NextResponse.json({
-        error: `Flutterwave checkout failed: ${providerMessage}`,
-        code: "FLUTTERWAVE_CHECKOUT_REJECTED",
-      }, { status: 502 });
+      const errorMessage = providerSucceeded && providerMessage.toLowerCase() === "hosted link"
+        ? "Flutterwave reported success but TopVerify could not validate the checkout URL. Please retry once; if it repeats, check the latest Vercel function log."
+        : `Flutterwave checkout could not be created: ${providerMessage}`;
+      return NextResponse.json({ error: errorMessage, code: "FLUTTERWAVE_CHECKOUT_REJECTED" }, { status: 502 });
     }
 
     return NextResponse.json({ checkoutUrl, txRef });
