@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { verifyAndCreditFlutterwaveTopup } from "@/lib/payments/flutterwave";
+import { verifyAndCreditFlutterwaveTopup, verifyAndCreditVirtualAccountPayment } from "@/lib/payments/flutterwave";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,7 +38,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    await verifyAndCreditFlutterwaveTopup(txRef, transactionId);
+    if (txRef.startsWith("TVVA-")) {
+      await verifyAndCreditVirtualAccountPayment(txRef, transactionId);
+    } else {
+      await verifyAndCreditFlutterwaveTopup(txRef, transactionId);
+    }
     return NextResponse.json({ received: true });
   } catch {
     // A non-2xx response lets Flutterwave retry if verification or reconciliation is temporarily unavailable.
