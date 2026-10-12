@@ -14,6 +14,7 @@ type Profile = {
 };
 type Service = { id: string; name: string; description: string; category: string; price_kobo: number; enabled: boolean };
 type WalletRow = { balance_kobo: number; currency: string };
+type DepositAccount = { account_number: string; bank_name: string; status: string; created_at?: string };
 type RequestRow = { id: string; service_id: string; status: string; fee_kobo: number; request_reference: string; provider_reference?: string | null; created_at: string };
 type RequestFields = { nin: string; phone: string; bvn: string; firstName: string; lastName: string; gender: string; dateOfBirth: string; slipType: string; trackingId: string; errorType: string; fieldCode: string; modificationValue: string; modificationReason: string };
 const money = (kobo: number) => new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 0 }).format(kobo / 100);
@@ -48,6 +49,12 @@ export default function DashboardPage() {
   const [businessAddress, setBusinessAddress] = useState("");
   const [intendedUse, setIntendedUse] = useState("Customer onboarding and identity verification with consent");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [registrationNin, setRegistrationNin] = useState("");
+  const [acceptedNinSharing, setAcceptedNinSharing] = useState(false);
+  const [depositAccount, setDepositAccount] = useState<DepositAccount | null>(null);
+  const [accountNin, setAccountNin] = useState("");
+  const [acceptedAccountNinSharing, setAcceptedAccountNinSharing] = useState(false);
+  const [accountSetupLoading, setAccountSetupLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Service | null>(null);
   const [fields, setFields] = useState<RequestFields>(emptyFields);
@@ -62,6 +69,37 @@ export default function DashboardPage() {
   const [fundingLoading, setFundingLoading] = useState(false);
 
   const flash = (message: string, isError = false) => { setNotice(message); setNoticeError(isError); };
+
+  const loadDepositAccount = useCallback(async () => {
+    try {
+      const response = await fetch("/api/payments/virtual-account", { cache: "no-store" });
+      const payload = await response.json();
+      if (response.ok) setDepositAccount(payload.account?.status === "active" ? payload.account : null);
+    } catch { /* Preserve the last known account details during a brief outage. */ }
+  }, []);
+
+  async function setupDepositAccount(nin: string, consent: boolean) {
+    if (!/^\d{11}$/.test(nin.replace(/\s/g, ""))) throw new Error("Enter your 11-digit NIN.");
+    if (!consent) throw new Error("Please consent to sending your NIN securely to Flutterwave for permanent account creation.");
+    setAccountSetupLoading(true);
+    try {
+      const response = await fetch("/api/payments/virtual-account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nin: nin.replace(/\s/g, ""), consent: true }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload.account?.status !== "active") throw new Error(payload.error || "Unable to create your permanent deposit account.");
+      setDepositAccount(payload.account);
+      setAccountNin("");
+      setRegistrationNin("");
+      setAcceptedAccountNinSharing(false);
+      setAcceptedNinSharing(false);
+      flash("Your permanent bank-transfer account is ready. Use these details for future wallet deposits.");
+    } finally {
+      setAccountSetupLoading(false);
+    }
+  }
   const refreshData = useCallback(async (userId: string) => {
     const [p, w, s, h] = await Promise.all([
       supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
@@ -90,6 +128,8 @@ export default function DashboardPage() {
     });
     return () => { alive = false; listener.subscription.unsubscribe(); };
   }, [supabase, refreshData]);
+
+  useEffect(() => { if (user?.id) void loadDepositAccount(); else setDepositAccount(null); }, [user?.id, loadDepositAccount]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -157,6 +197,8 @@ export default function DashboardPage() {
     try {
       if (authMode === "signup") {
         if (!acceptedTerms) throw new Error("Please accept the acceptable-use terms and privacy notice to continue.");
+        if (!/^\d{11}$/.test(registrationNin.replace(/\s/g, ""))) throw new Error("Enter your 11-digit NIN to set up a permanent deposit account.");
+        if (!acceptedNinSharing) throw new Error("Please consent to sending your NIN to Flutterwave for permanent account creation.");
         const { data, error } = await supabase.auth.signUp({
           email, password,
           options: { data: {
@@ -169,9 +211,10 @@ export default function DashboardPage() {
         if (data.session && data.user) {
           setUser({ id: data.user.id, email: data.user.email });
           await refreshData(data.user.id);
+          try { await setupDepositAccount(registrationNin, acceptedNinSharing); } catch (accountError) { flash("Account created, but permanent deposit setup needs attention: " + (accountError instanceof Error ? accountError.message : "Please retry in Wallet.") + " You can use hosted payment meanwhile.", true); }
           flash("Registration received. Your account is pending TopVerify review.");
         } else {
-          flash("Registration received. Check your email to confirm the account, then sign in.");
+          flash("Registration received. Check your email to confirm the account, then sign in. For security, TopVerify does not store your NIN while you wait; enter it again in Wallet to create your permanent deposit account.");
           setAuthMode("signin");
         }
       } else {
@@ -319,6 +362,8 @@ export default function DashboardPage() {
             <label>Full name<input required autoComplete="name" value={fullName} onChange={e=>setFullName(e.target.value)} placeholder="Your legal name"/></label>
             <div className="tv-two-fields"><label>Phone number<input required autoComplete="tel" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="080…"/></label><label>Business / agency<input value={businessName} onChange={e=>setBusinessName(e.target.value)} placeholder="Optional"/></label></div>
             <label>Business address<input value={businessAddress} onChange={e=>setBusinessAddress(e.target.value)} placeholder="Business location (if applicable)"/></label>
+            <label>National Identification Number (NIN)<input required inputMode="numeric" autoComplete="off" maxLength={11} value={registrationNin} onChange={e=>setRegistrationNin(e.target.value.replace(/\D/g,"").slice(0,11))} placeholder="Enter your 11-digit NIN"/></label>
+            <label className="tv-terms"><input type="checkbox" checked={acceptedNinSharing} onChange={e=>setAcceptedNinSharing(e.target.checked)}/><span>I consent to TopVerify sending my NIN to Flutterwave solely to create my permanent bank-transfer deposit account. TopVerify will not store the NIN in its database. I can use hosted payment instead if I do not want to create a permanent account.</span></label>
             <label>Intended use<select value={intendedUse} onChange={e=>setIntendedUse(e.target.value)}><option>Customer onboarding and identity verification with consent</option><option>Internal compliance checks with consent</option><option>Professional agent / reseller services</option><option>Other lawful business purpose</option></select></label>
           </>}
           <label>Email address<input required type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@company.com"/></label>
