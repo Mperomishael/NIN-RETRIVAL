@@ -44,7 +44,14 @@ export async function POST(request: Request) {
       await verifyAndCreditFlutterwaveTopup(txRef, transactionId);
     }
     return NextResponse.json({ received: true });
-  } catch {
+  } catch (error) {
+    // Do not log the webhook body or secrets; the reference and provider error
+    // are enough to diagnose failed reconciliation from production logs.
+    console.error("[TopVerify Flutterwave webhook] Reconciliation failed", {
+      txRef,
+      transactionId,
+      reason: error instanceof Error ? error.message.slice(0, 180) : "Unknown reconciliation error",
+    });
     // A non-2xx response lets Flutterwave retry if verification or reconciliation is temporarily unavailable.
     return NextResponse.json({ error: "Payment verification/reconciliation pending." }, { status: 500 });
   }
