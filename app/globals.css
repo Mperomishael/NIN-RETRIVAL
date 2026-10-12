@@ -466,3 +466,15 @@
   .tv-auth-3d-scene,.tv-flip-card,.tv-auth-orbit-ring{animation:none!important}
   .tv-stat-card,.tv-panel,.tv-wallet-hero,.tv-admin-callout,.tv-service-card,.tv-service-card-large{transition:none!important}
 }
+
+/* Permanent bank-transfer account setup */
+.tv-account-details{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:18px}
+.tv-account-details>div{display:flex;flex-direction:column;gap:7px;padding:16px;border:1px solid var(--tv-border,#e5e7eb);border-radius:14px;background:var(--tv-surface,#fff);min-width:0}
+.tv-account-details span{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--tv-muted,#64748b)}
+.tv-account-details strong{font-size:15px;overflow-wrap:anywhere}
+.tv-account-details small{font-size:12px;line-height:1.5;color:var(--tv-muted,#64748b)}
+.tv-account-setup,.tv-hosted-payment{padding:18px 0;display:flex;flex-direction:column;gap:12px}
+.tv-account-setup h3,.tv-hosted-payment h3{display:flex;align-items:center;gap:9px;margin:0;font-size:15px}
+.tv-account-setup p,.tv-hosted-payment p{margin:0;color:var(--tv-muted,#64748b);font-size:13px;line-height:1.6}
+.tv-hosted-payment{border-top:1px solid var(--tv-border,#e5e7eb);margin-top:8px}
+@media(max-width:720px){.tv-account-details{grid-template-columns:1fr}.tv-account-details>div{padding:13px}.tv-account-setup,.tv-hosted-payment{padding:14px 0}}
