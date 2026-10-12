@@ -57,7 +57,8 @@ export default function DashboardPage() {
   const [noticeError, setNoticeError] = useState(false);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [checking, setChecking] = useState(true);
-  const [fundAmount, setFundAmount] = useState("5000");
+  const [fundAmount, setFundAmount] = useState("");
+  const [showFundForm, setShowFundForm] = useState(false);
   const [fundingLoading, setFundingLoading] = useState(false);
 
   const flash = (message: string, isError = false) => { setNotice(message); setNoticeError(isError); };
@@ -66,7 +67,7 @@ export default function DashboardPage() {
       supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
       supabase.from("wallets").select("balance_kobo,currency").eq("user_id", userId).maybeSingle(),
       supabase.from("services").select("id,name,description,category,price_kobo,enabled").order("category").order("name"),
-      supabase.from("identity_requests").select("id,service_id,status,fee_kobo,request_reference,provider_reference,created_at").order("created_at", { ascending: false }).limit(8),
+      supabase.from("identity_requests").select("id,service_id,status,fee_kobo,request_reference,provider_reference,created_at").order("created_at", { ascending: false }),
     ]);
     if (p.data) setProfile(p.data as Profile);
     if (w.data) setWallet(w.data as WalletRow);
@@ -130,6 +131,22 @@ export default function DashboardPage() {
     document.addEventListener("visibilitychange", sync);
     return () => { window.clearInterval(interval); window.removeEventListener("focus", sync); document.removeEventListener("visibilitychange", sync); };
   }, [user?.id, refreshData]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const channel = supabase.channel(`topverify-live-wallet-${user.id}`)
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "wallets", filter: `user_id=eq.${user.id}`,
+      }, () => { void refreshData(user.id); })
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "wallet_ledger", filter: `user_id=eq.${user.id}`,
+      }, () => { void refreshData(user.id); })
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "identity_requests", filter: `user_id=eq.${user.id}`,
+      }, () => { void refreshData(user.id); })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [user?.id, supabase, refreshData]);
 
   const filteredServices = useMemo(() => services.filter(s => s.enabled && !["nin-lookup", "nin-slip", "nin-image-report"].includes(s.id) && (s.name + " " + s.description + " " + s.category).toLowerCase().includes(query.toLowerCase())), [services, query]);
   const serviceIcon = (id: string) => id === "ipe-clearance" ? BadgeCheck : id === "nin-image-report" ? FileImage : id === "nin-validation" || id === "tracking-id-lookup" ? FileSearch : id === "nin-modification" ? FilePenLine : id === "demographic" ? UserRoundCheck : id.includes("phone") ? Smartphone : id.includes("slip") ? FileCheck2 : id.includes("bvn") ? IdCard : Fingerprint;
@@ -371,7 +388,7 @@ export default function DashboardPage() {
           </div>}
         </>}
         {section === "Request history" && <><div className="tv-page-heading"><div><span className="tv-eyebrow"><Clock3 size={13}/> AUDITABLE ACTIVITY</span><h1>Request history</h1><p>Your latest identity-service requests and provider references.</p></div><button className="tv-button-primary" onClick={()=>setSection("Services")}><FileCheck2 size={16}/> New request</button></div><section className="tv-panel tv-history-panel"><RequestTable history={history} services={services}/></section></>}
-        {section === "My wallet" && <><div className="tv-page-heading"><div><span className="tv-eyebrow"><Wallet size={13}/> WALLET & PAYMENTS</span><h1>My wallet</h1><p>Your individual TopVerify wallet is created automatically when you register.</p></div></div><div className="tv-wallet-page-grid"><section className="tv-wallet-hero"><span><Wallet size={16}/> AVAILABLE BALANCE</span><strong>{money(Number(wallet?.balance_kobo || 0))}</strong><p>NGN · Nigerian naira</p><div><button type="button" disabled={fundingLoading} aria-busy={fundingLoading} onClick={fundWallet}>{fundingLoading && <span className="tv-button-spinner" aria-hidden="true"/>}{fundingLoading ? "Opening checkout…" : "Fund wallet"} {!fundingLoading && <ArrowRight size={15}/>}</button><span>Secure Flutterwave checkout</span></div></section><section className="tv-panel tv-fund-panel"><h2>Fund your wallet</h2><p>Choose an amount and pay through Flutterwave. TopVerify verifies the transaction server-side before crediting your balance.</p><label>Amount (NGN)<input value={fundAmount} onChange={e=>setFundAmount(e.target.value.replace(/\D/g,""))} inputMode="numeric" min="500" max="1000000" type="number"/></label><div className="tv-quick-amounts">{["2000","5000","10000","20000"].map(n=><button type="button" key={n} className={fundAmount===n?"tv-quick-active":""} onClick={()=>setFundAmount(n)}>{money(Number(n)*100)}</button>)}</div><div className="tv-soft-note"><ShieldCheck size={17}/><span>Wallet funding: ₦500–₦1,000,000 per transaction. Payments settle to TopVerify’s configured Flutterwave merchant account; the wallet balance is an internal customer ledger, not a separate bank balance.</span></div></section></div><section className="tv-panel tv-history-panel"><div className="tv-panel-heading"><div><h2>Recent ledger activity</h2><p>Wallet credits, service debits and refunds</p></div></div><LedgerTable userId={user.id}/></section></>}
+        {section === "My wallet" && <><div className="tv-page-heading"><div><span className="tv-eyebrow"><Wallet size={13}/> WALLET & PAYMENTS</span><h1>My wallet</h1><p>Your individual TopVerify wallet is created automatically when you register.</p></div></div><div className="tv-wallet-page-grid"><section className="tv-wallet-hero"><span><Wallet size={16}/> AVAILABLE BALANCE</span><strong>{money(Number(wallet?.balance_kobo || 0))}</strong><p>NGN · Nigerian naira</p><div><button type="button" disabled={fundingLoading} onClick={()=>setShowFundForm(true)}>{fundingLoading && <span className="tv-button-spinner" aria-hidden="true"/>}Fund wallet {!fundingLoading && <ArrowRight size={15}/>}</button><span>Secure Flutterwave checkout</span></div></section>{showFundForm && <section className="tv-panel tv-fund-panel"><div className="tv-panel-heading"><div><h2>Fund your wallet</h2><p>Enter the amount you want to add. Your balance updates after Flutterwave verifies payment.</p></div><button type="button" className="tv-text-btn" onClick={()=>{setShowFundForm(false);setFundAmount("");}}>Cancel</button></div><label>Amount (NGN)<input value={fundAmount} onChange={e=>setFundAmount(e.target.value.replace(/\D/g,""))} inputMode="numeric" min="500" max="1000000" type="number" placeholder="Enter amount (minimum ₦500)"/></label><div className="tv-quick-amounts">{["500","2000","5000","10000","20000"].map(n=><button type="button" key={n} className={fundAmount===n?"tv-quick-active":""} onClick={()=>setFundAmount(n)}>{money(Number(n)*100)}</button>)}</div><div className="tv-soft-note"><ShieldCheck size={17}/><span>Wallet funding: ₦500–₦1,000,000 per transaction. Payments settle to TopVerify’s configured Flutterwave merchant account; the wallet balance is an internal customer ledger, not a separate bank balance.</span></div><div className="tv-funding-actions"><button type="button" className="tv-button-primary" disabled={fundingLoading} onClick={fundWallet}>{fundingLoading ? "Opening checkout…" : "Continue to secure payment"} {!fundingLoading && <ArrowRight size={15}/>}</button></div></section>}</div><section className="tv-panel tv-history-panel"><div className="tv-panel-heading"><div><h2>Wallet ledger</h2><p>Verified credits, service debits and refunds</p></div></div><LedgerTable userId={user.id}/></section><section className="tv-panel tv-history-panel"><div className="tv-panel-heading"><div><h2>Wallet funding transactions</h2><p>Pending deposits and verified top-ups</p></div></div><FundingTable userId={user.id}/></section></>}
         {section === "Agents" && profile?.is_super_admin && <AdminAgents supabase={supabase} onNotice={flash}/>}
         {section === "Pricing" && profile?.is_super_admin && <AdminPricing supabase={supabase} services={services} onRefresh={()=>user && refreshData(user.id)} onNotice={flash}/>}
         {profile?.is_super_admin && section === "Overview" && <div className="tv-admin-callout"><Users size={18}/><div><strong>Platform administrator</strong><p>Use Agent oversight to review new agent accounts. Keep approval and pricing changes auditable.</p></div></div>}
@@ -413,9 +430,39 @@ function RequestTable({ history, services }: { history: RequestRow[]; services: 
 
 function LedgerTable({ userId }: { userId: string }) {
   const [rows, setRows] = useState<Array<{id:string;entry_type:string;amount_kobo:number;description:string;reference:string;created_at:string}>>([]);
-  useEffect(()=>{const client=createClient();client.from("wallet_ledger").select("id,entry_type,amount_kobo,description,reference,created_at").eq("user_id",userId).order("created_at",{ascending:false}).limit(20).then(({data})=>setRows(data||[]));},[userId]);
+  useEffect(()=>{
+    const client=createClient();
+    const load=()=>client.from("wallet_ledger").select("id,entry_type,amount_kobo,description,reference,created_at").eq("user_id",userId).order("created_at",{ascending:false}).limit(100).then(({data})=>setRows(data||[]));
+    void load();
+    const channel=client.channel(`topverify-ledger-${userId}`).on("postgres_changes",{event:"*",schema:"public",table:"wallet_ledger",filter:`user_id=eq.${userId}`},()=>{void load();}).subscribe();
+    return ()=>{void client.removeChannel(channel);};
+  },[userId]);
   if (!rows.length) return <div className="tv-empty"><div><Wallet size={21}/></div><strong>No wallet activity</strong><span>Verified credits, service debits and refunds will be listed here.</span></div>;
   return <div className="tv-table-scroll"><table className="tv-table"><thead><tr><th>TYPE</th><th>REFERENCE</th><th>DESCRIPTION</th><th>DATE</th><th>AMOUNT</th></tr></thead><tbody>{rows.map(row=><tr key={row.id}><td>{row.entry_type}</td><td className="tv-ref">{row.reference}</td><td>{row.description}</td><td>{dateText(row.created_at)}</td><td>{money(row.amount_kobo)}</td></tr>)}</tbody></table></div>;
+}
+
+function FundingTable({ userId }: { userId: string }) {
+  const [rows, setRows] = useState<Array<{id:string;tx_ref:string;amount_kobo:number;currency:string;status:string;created_at:string;updated_at:string;credited_at:string|null;provider_reference:string|null}>>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(()=>{
+    let active=true;
+    const load=async()=>{
+      try {
+        const response=await fetch("/api/payments/wallet-history",{cache:"no-store"});
+        const payload=await response.json();
+        if(active && response.ok && Array.isArray(payload.topups)) setRows(payload.topups);
+      } catch { /* Keep the last known transaction list visible while offline. */ }
+      finally { if(active) setLoading(false); }
+    };
+    void load();
+    const interval=window.setInterval(()=>{if(document.visibilityState==="visible") void load();},10000);
+    const onFocus=()=>void load();
+    window.addEventListener("focus",onFocus);
+    return ()=>{active=false;window.clearInterval(interval);window.removeEventListener("focus",onFocus);};
+  },[userId]);
+  if (loading && !rows.length) return <div className="tv-empty"><div><Clock3 size={21}/></div><strong>Loading funding history…</strong><span>Checking your latest wallet top-ups.</span></div>;
+  if (!rows.length) return <div className="tv-empty"><div><Wallet size={21}/></div><strong>No funding transactions yet</strong><span>Once you start a deposit, its status will appear here.</span></div>;
+  return <div className="tv-table-scroll"><table className="tv-table"><thead><tr><th>REFERENCE</th><th>DATE</th><th>AMOUNT</th><th>STATUS</th></tr></thead><tbody>{rows.map(row=><tr key={row.id}><td className="tv-ref">{row.tx_ref}</td><td>{dateText(row.created_at)}</td><td>{money(row.amount_kobo)}</td><td><span className={row.status==="credited"?"tv-table-status tv-table-success":row.status==="failed"?"tv-table-status tv-table-failed":"tv-table-status tv-table-pending"}>{row.status==="credited"?"Credited":row.status==="failed"?"Failed":"Pending"}</span></td></tr>)}</tbody></table></div>;
 }
 
 function AdminAgents({ supabase, onNotice }: { supabase: ReturnType<typeof createClient>; onNotice: (message:string,error?:boolean)=>void }) {
