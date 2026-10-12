@@ -97,7 +97,7 @@ export async function verifyAndCreditFlutterwaveTopup(txRef: string, transaction
  * The provider's transaction is verified server-to-server before any wallet credit.
  */
 export async function verifyAndCreditVirtualAccountPayment(accountTxRef: string, transactionId: string) {
-  if (!/^TVVA-[0-9a-f-]{36,64}-[0-9a-f]{12}$/i.test(accountTxRef) || !/^\d+$/.test(transactionId)) {
+  if (!/^TVVA-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[0-9a-f]{12}$/i.test(accountTxRef) || !/^\d+$/.test(transactionId)) {
     throw new Error("Invalid virtual-account payment reference.");
   }
 
