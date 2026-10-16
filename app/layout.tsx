@@ -1,12 +1,15 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./landing.css";
+import "./workspace.css";
 
 export const metadata: Metadata = {
   title: "TopVerify — Identity Operations",
   description: "A secure, consent-first identity verification workspace with agent accounts, dedicated wallets and auditable requests.",
   applicationName: "TopVerify",
 };
+
+export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#0d1a33" };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return <html lang="en"><body>{children}</body></html>;

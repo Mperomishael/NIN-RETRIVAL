@@ -140,7 +140,7 @@ export async function POST(request: Request) {
   });
   if (reserveError || !reservation) {
     const message = reserveError?.message ?? "Unable to reserve this request.";
-    if (message.includes("ACCOUNT_NOT_APPROVED")) return NextResponse.json({ error: "Your account is awaiting approval. You can use live identity services after TopVerify approves your KYC." }, { status: 403 });
+    if (message.includes("ACCOUNT_NOT_APPROVED")) return NextResponse.json({ error: "Verify your NIN in Wallet to activate your account before making requests." }, { status: 403 });
     if (message.includes("INSUFFICIENT_BALANCE")) return NextResponse.json({ error: "Insufficient wallet balance. Fund your wallet before making this request." }, { status: 402 });
     if (message.includes("SERVICE_UNAVAILABLE")) return NextResponse.json({ error: "This service is currently unavailable." }, { status: 409 });
     if (message.includes("TERMS_NOT_ACCEPTED")) return NextResponse.json({ error: "Accept the current acceptable-use terms before making requests." }, { status: 403 });
