@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSuperAdmin, writeAudit, type ServiceClient } from "@/lib/server/admin";
+import { describeProviderResponse, providerBase, safeServicePayload } from "@/lib/server/ninslip";
+import { resolveStuckRequests } from "@/lib/server/stuck-requests";
 import { reconcileHostedTopups, reconcileVirtualAccountDeposits } from "@/lib/payments/flutterwave";
 
 export const runtime = "nodejs";
@@ -43,8 +45,22 @@ export async function GET(request: Request) {
         admin.from("identity_requests").select("id,service_id,status,fee_kobo,request_reference,created_at,user_id").order("created_at", { ascending: false }).limit(8),
       ]);
       const userNames = await names(admin, (recent ?? []).map(r => r.user_id as string));
+      const [{ data: svc }, { data: costRows }] = await Promise.all([
+        admin.from("services").select("id,name,price_kobo,enabled"),
+        admin.from("service_costs").select("service_id,cost_kobo"),
+      ]);
+      const costOf = new Map((costRows ?? []).map(c => [c.service_id as string, Number(c.cost_kobo)]));
+      const alerts = (svc ?? []).filter(x => x.enabled).flatMap(x => {
+        const price = Number(x.price_kobo);
+        const cost = costOf.get(x.id as string) ?? 0;
+        if (cost <= 0) return [{ id: x.id, name: x.name, price_kobo: price, cost_kobo: cost, kind: "nocost" }];
+        if (price < cost) return [{ id: x.id, name: x.name, price_kobo: price, cost_kobo: cost, kind: "below" }];
+        if ((price - cost) / price < 0.15) return [{ id: x.id, name: x.name, price_kobo: price, cost_kobo: cost, kind: "thin" }];
+        return [];
+      });
       return reply({
         stats,
+        alerts,
         signups,
         recent: (recent ?? []).map(r => ({ ...r, user_name: userNames.get(r.user_id as string) ?? "User" })),
       });
@@ -133,6 +149,16 @@ export async function GET(request: Request) {
       const accountCounts = { active: 0, provisioning: 0, failed: 0 } as Record<string, number>;
       for (const a of accounts ?? []) accountCounts[a.status as string] = (accountCounts[a.status as string] ?? 0) + 1;
       return reply({ topups: (data ?? []).map(r => ({ ...r, user_name: userNames.get(r.user_id as string) ?? "User" })), accountCounts });
+    }
+
+    if (view === "pricing") {
+      const [{ data: svc, error }, { data: costRows }] = await Promise.all([
+        admin.from("services").select("id,name,description,category,price_kobo,enabled").order("category").order("name"),
+        admin.from("service_costs").select("service_id,cost_kobo"),
+      ]);
+      if (error) throw error;
+      const costOf = new Map((costRows ?? []).map(c => [c.service_id as string, Number(c.cost_kobo)]));
+      return reply({ services: (svc ?? []).map(x => ({ ...x, cost_kobo: costOf.get(x.id as string) ?? 0 })) });
     }
 
     if (view === "audit") {
@@ -238,6 +264,72 @@ export async function POST(request: Request) {
       return reply({ ok: true, message: "Fee refunded to the customer's wallet." });
     }
 
+    if (action === "save_service") {
+      const serviceId = String(body.serviceId ?? "");
+      const price = Number(body.priceNaira);
+      const cost = Number(body.costNaira);
+      const enabled = body.enabled === true;
+      if (!/^[a-z0-9-]{2,60}$/.test(serviceId) || !Number.isFinite(price) || price < 0 || price > 10000000 || !Number.isFinite(cost) || cost < 0 || cost > 10000000) {
+        return reply({ error: "Enter a valid price and cost." }, 400);
+      }
+      if (enabled && price <= 0) return reply({ error: "Set a price above zero before enabling a service." }, 400);
+      const now = new Date().toISOString();
+      const { data: before } = await admin.from("services").select("price_kobo,enabled").eq("id", serviceId).maybeSingle();
+      if (!before) return reply({ error: "Service not found." }, 404);
+      const { error: svcError } = await admin.from("services").update({ price_kobo: Math.round(price * 100), enabled, updated_at: now }).eq("id", serviceId);
+      if (svcError) throw svcError;
+      const { error: costError } = await admin.from("service_costs").upsert({ service_id: serviceId, cost_kobo: Math.round(cost * 100), updated_at: now });
+      if (costError) throw costError;
+      await writeAudit(admin, actorId, null, "service_updated", "service", serviceId, {
+        price_kobo: Math.round(price * 100), cost_kobo: Math.round(cost * 100), enabled,
+        previous_price_kobo: before.price_kobo, previous_enabled: before.enabled,
+      });
+      return reply({ ok: true, message: "Service saved." });
+    }
+
+    if (action === "provider_test") {
+      const serviceId = String(body.serviceId ?? "");
+      let built: ReturnType<typeof safeServicePayload>;
+      try { built = safeServicePayload(serviceId, body); }
+      catch (error) { return reply({ error: error instanceof Error ? error.message : "Invalid test details." }, 400); }
+      const apiKey = process.env.NINSLIP_API_KEY;
+      if (!apiKey) return reply({ ok: false, error: "NINSLIP_API_KEY is not set on the server." }, 503);
+      const started = Date.now();
+      try {
+        const upstream = await fetch(providerBase + built.endpoint, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify(built.payload), cache: "no-store", signal: AbortSignal.timeout(30000),
+        });
+        const response = await upstream.json().catch(() => ({})) as Record<string, unknown>;
+        const details = describeProviderResponse(upstream.status, built.endpoint, response);
+        await writeAudit(admin, actorId, null, "provider_test", "service", serviceId, { ...details });
+        return reply({ ok: true, ms: Date.now() - started, ...details });
+      } catch (error) {
+        return reply({ ok: false, ms: Date.now() - started, error: `Could not reach NINSlip (${error instanceof Error ? error.name : "error"}).` }, 502);
+      }
+    }
+
+    if (action === "resolve_stuck") {
+      const result = await resolveStuckRequests(admin, 10);
+      await writeAudit(admin, actorId, null, "stuck_requests_resolved", "identity_request", null, { ...result });
+      const total = result.completed + result.refunded;
+      return reply({ ok: true, message: total === 0 && result.failed === 0 ? "No stuck requests found." : `${result.refunded} refunded, ${result.completed} completed${result.failed ? `, ${result.failed} could not be resolved` : ""}.` });
+    }
+
+    if (action === "complete_request") {
+      if (!isUuid(body.requestId)) return reply({ error: "Invalid request." }, 400);
+      const { data: row } = await admin.from("identity_requests").select("id,status,provider_reference,result_payload,user_id").eq("id", body.requestId).maybeSingle();
+      if (!row) return reply({ error: "Request not found." }, 404);
+      if (row.status !== "processing") return reply({ error: "Only processing requests can be marked completed." }, 400);
+      const { error } = await admin.rpc("topverify_finalize_request", {
+        p_request_id: row.id, p_status: "completed", p_provider_reference: row.provider_reference ?? "", p_result_summary: row.result_payload ?? {}, p_error_code: null,
+      });
+      if (error) throw error;
+      await writeAudit(admin, actorId, row.user_id as string, "request_marked_completed", "identity_request", row.id as string, {});
+      return reply({ ok: true, message: "Request marked completed." });
+    }
+
     if (action === "reconcile_user") {
       if (!isUuid(targetId)) return reply({ error: "Invalid request." }, 400);
       let credited = 0;
@@ -259,9 +351,11 @@ export async function POST(request: Request) {
       const email = owner.data.user?.email;
       if (!email) return reply({ error: "User email not found." }, 404);
       const { data, error } = await admin.auth.admin.generateLink({ type: "recovery", email });
-      if (error || !data.properties?.action_link) return reply({ error: "Could not generate a reset link." }, 500);
+      const hashed = data?.properties?.hashed_token;
+      if (error || !hashed) return reply({ error: "Could not generate a reset link." }, 500);
+      const site = (process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin).replace(/\/$/, "");
       await writeAudit(admin, actorId, targetId, "password_reset_link_generated", "profile", targetId, {});
-      return reply({ ok: true, link: data.properties.action_link });
+      return reply({ ok: true, link: `${site}/auth/verified?token_hash=${encodeURIComponent(hashed)}&type=recovery` });
     }
 
     return reply({ error: "Unknown action." }, 400);
