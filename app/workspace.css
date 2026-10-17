@@ -1009,3 +1009,5 @@
 .tv-app .tv-panel-heading .tv-pill { min-height: 34px; padding: 0 12px; font-size: 13px; }
 .tv-pending .tv-muted strong { word-break: normal; overflow-wrap: anywhere; }
 @media (max-width: 480px) { .tv-verify { align-items: center; } }
+
+.tv-app .tv-row-actions { display: flex; gap: 8px; flex-wrap: wrap; }

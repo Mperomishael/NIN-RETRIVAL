@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { resolveStuckRequests } from "@/lib/server/stuck-requests";
 import { reconcileHostedTopups, reconcileVirtualAccountDeposits } from "@/lib/payments/flutterwave";
 
 export const runtime = "nodejs";
@@ -48,7 +49,10 @@ export async function GET(request: Request) {
       } catch { failed++; }
     }
 
+    const stuck = await resolveStuckRequests(admin, 10).catch(() => ({ completed: 0, refunded: 0, failed: 0 }));
+
     return NextResponse.json({
+      stuckRequests: stuck,
       ok: failed === 0,
       accountsChecked: accounts?.length ?? 0,
       transactionsChecked: checked,

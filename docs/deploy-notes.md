@@ -16,3 +16,8 @@ Run `20261015090000_service_costs_and_profit.sql`. It seeds your NINSlip prices 
 1. Follow `supabase/email-templates/README.md` (paste templates, set Site URL, enable custom SMTP).
 2. Registration now sends a confirmation email. Users tap the link, see the animated verified page, then go to login. To turn email verification off, set `SKIP_EMAIL_VERIFICATION=true`.
 3. New pages: `/auth/verified` (verification result) and `/auth/reset` (set a new password). "Forgot password?" is on the sign-in form.
+
+## Stuck "processing" requests
+- The identity route now has a 60 second limit, checked and retried finalize steps, and logs what NINSlip returned (search Vercel logs for `[TopVerify identity]`).
+- Admin console > Requests: **Resolve stuck** refunds or completes requests left processing over 10 minutes (the daily cron does this too). **Complete** marks a processing request done after you confirm the result on NINSlip.
+- NIN validation, IPE clearance and NIN modification are submitted jobs. They stay "processing" until you complete or refund them in the admin console.

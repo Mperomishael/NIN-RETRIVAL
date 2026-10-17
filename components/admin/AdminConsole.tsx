@@ -467,6 +467,24 @@ function RequestsTab({ onNotice }: { onNotice: Notice }) {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const serviceName = (id: string) => services.find(s => s.id === id)?.name ?? id;
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  const [busyAction, setBusyAction] = useState("");
+
+  async function resolveStuck() {
+    const ok = await confirm({ title: "Resolve stuck requests?", message: "Requests that stayed processing for over 10 minutes are finished automatically: refunded if the provider never replied, or completed if it did. NIN validation, IPE clearance and modification requests are left alone." , confirmLabel: "Resolve" });
+    if (!ok) return;
+    setBusyAction("stuck");
+    try { const result = await adminPost({ action: "resolve_stuck" }); onNotice(result.message ?? "Done."); await reload(); }
+    catch (err) { onNotice(err instanceof Error ? err.message : "Could not resolve requests.", true); }
+    finally { setBusyAction(""); }
+  }
+
+  async function markCompleted(row: ReqRow) {
+    const ok = await confirm({ title: "Mark as completed?", message: `${serviceName(row.service_id)} for ${row.user_name} will be marked completed and the fee kept. Use this after you confirm the result on NINSlip.`, confirmLabel: "Mark completed" });
+    if (!ok) return;
+    try { const result = await adminPost({ action: "complete_request", requestId: row.id }); onNotice(result.message ?? "Done."); await reload(); }
+    catch (err) { onNotice(err instanceof Error ? err.message : "Could not update the request.", true); }
+  }
 
   async function refund(event: FormEvent) {
     event.preventDefault();
@@ -487,6 +505,7 @@ function RequestsTab({ onNotice }: { onNotice: Notice }) {
       <div className="tv-toolbar">
         <div className="tv-searchbar"><Search size={17} /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Search by request reference" aria-label="Search requests" /></div>
         <Pills value={status} onChange={setStatus} options={[["", "All"], ["processing", "Processing"], ["completed", "Completed"], ["failed", "Failed"], ["refunded", "Refunded"]]} />
+        <button type="button" className="tv-button-secondary tv-btn-sm" disabled={busyAction === "stuck"} onClick={() => void resolveStuck()}><RefreshCw size={14} className={busyAction === "stuck" ? "tv-spin" : ""} /> Resolve stuck</button>
       </div>
       <section className="tv-panel tv-history-panel">
         {loading && !data ? <Skeleton /> : error ? <Failed message={error} retry={reload} /> : !data?.requests.length ? <Empty text="No requests match." /> : (
@@ -501,13 +520,14 @@ function RequestsTab({ onNotice }: { onNotice: Notice }) {
                   <td data-label="DATE">{dateText(r.created_at)}</td>
                   <td data-label="FEE">{money(r.fee_kobo)}</td>
                   <td data-label="STATUS"><span className={statusClass(r.status)}>{r.status}</span></td>
-                  <td data-label="">{r.status !== "refunded" && r.fee_kobo > 0 && <button type="button" className="tv-button-secondary tv-btn-sm" onClick={() => setTarget(r)}>Refund</button>}</td>
+                  <td data-label="" className="tv-row-actions">{r.status === "processing" && <button type="button" className="tv-button-secondary tv-btn-sm" onClick={() => void markCompleted(r)}>Complete</button>}{r.status !== "refunded" && r.fee_kobo > 0 && <button type="button" className="tv-button-secondary tv-btn-sm" onClick={() => setTarget(r)}>Refund</button>}</td>
                 </tr>
               ))}</tbody>
             </table>
           </div>
         )}
       </section>
+      {confirmDialog}
       <Modal open={!!target} onClose={() => !busy && setTarget(null)} size="sm" busy={busy} title="Refund this fee?" icon={<Receipt size={20} />}
         footer={<><button type="button" className="tv-button-secondary" onClick={() => setTarget(null)} disabled={busy}>Cancel</button><button type="submit" form="tv-refund-form" className="tv-button-primary" disabled={busy}>{busy ? "Refunding" : "Refund fee"}</button></>}>
         <form id="tv-refund-form" className="tv-form" onSubmit={refund}>

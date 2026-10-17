@@ -4,8 +4,21 @@ import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const providerBase = "https://api.ninslip.com";
+
+type FinalizeArgs = { p_request_id: string; p_status: "completed" | "failed"; p_provider_reference: string; p_result_summary: Record<string, unknown>; p_error_code: string | null };
+
+async function finalize(admin: ReturnType<typeof adminClient>, args: FinalizeArgs) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { error } = await admin.rpc("topverify_finalize_request", args);
+    if (!error) return true;
+    console.error("[TopVerify identity] Could not finalize request", { requestId: args.p_request_id, status: args.p_status, attempt, reason: error.message.slice(0, 160) });
+    await new Promise(resolve => setTimeout(resolve, 400));
+  }
+  return false;
+}
 
 function adminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -161,12 +174,17 @@ export async function POST(request: Request) {
     const statusText = String(response.status ?? "");
     const verified = upstream.ok && (statusText === "success" || response.response_code === "00" || response.message === "NIN Slip Generated Successfully" || response.message === "Phone NIN Slip Generated Successfully" || response.message === "BVN Slip Generated Successfully");
     if (!verified) {
-      await admin.rpc("topverify_finalize_request", { p_request_id: requestId, p_status: "failed", p_provider_reference: String(response.reportID ?? response.reference ?? ""), p_result_summary: {}, p_error_code: "PROVIDER_FAILED" });
+      console.error("[TopVerify identity] Provider did not confirm success", {
+        serviceId, endpoint: requestPayload.endpoint, httpStatus: upstream.status,
+        providerStatus: statusText.slice(0, 40), providerMessage: String(response.message ?? "").slice(0, 160),
+      });
+      await finalize(admin, { p_request_id: requestId, p_status: "failed", p_provider_reference: String(response.reportID ?? response.reference ?? ""), p_result_summary: {}, p_error_code: "PROVIDER_FAILED" });
       return NextResponse.json({ error: "The provider could not complete this request. Your TopVerify service fee has been refunded if it was reserved. Please check the reference before retrying." }, { status: 502 });
     }
 
     const summary = minimalResult(serviceId, response);
     const providerReference = summary.report_reference || reference;
+    await admin.from("identity_requests").update({ provider_reference: providerReference, result_payload: summary }).eq("id", requestId);
     const asyncServices = ["nin-validation", "ipe-clearance", "nin-modification"];
     if (asyncServices.includes(serviceId)) {
       // These provider APIs accept a job for later processing; do not label it completed at submission time.
@@ -184,13 +202,14 @@ export async function POST(request: Request) {
         note: "Keep the reference for follow-up. The wallet fee is charged for the provider-accepted submission.",
       });
     }
-    await admin.rpc("topverify_finalize_request", {
+    const finalized = await finalize(admin, {
       p_request_id: requestId,
       p_status: "completed",
       p_provider_reference: providerReference,
       p_result_summary: summary,
       p_error_code: null,
     });
+    if (!finalized) console.error("[TopVerify identity] Provider succeeded but the request stayed processing", { requestId, reference });
 
     const slip = response.slip as Record<string, unknown> | undefined;
     const pdfBase64 = slip && typeof slip.pdf_base64 === "string" ? slip.pdf_base64 : null;
@@ -204,8 +223,9 @@ export async function POST(request: Request) {
       slip: pdfBase64 ? { fileName: String(slip?.file_name ?? "TopVerify-slip.pdf"), mimeType: "application/pdf", base64: pdfBase64 } : null,
       note: "Identity results are sensitive. Store or share them only for the authorized purpose.",
     });
-  } catch {
-    await admin.rpc("topverify_finalize_request", { p_request_id: requestId, p_status: "failed", p_provider_reference: reference, p_result_summary: {}, p_error_code: "PROVIDER_UNAVAILABLE" });
+  } catch (error) {
+    console.error("[TopVerify identity] Provider call failed", { serviceId, endpoint: requestPayload.endpoint, reason: error instanceof Error ? `${error.name}: ${error.message}`.slice(0, 160) : "unknown" });
+    await finalize(admin, { p_request_id: requestId, p_status: "failed", p_provider_reference: reference, p_result_summary: {}, p_error_code: "PROVIDER_UNAVAILABLE" });
     return NextResponse.json({ error: "The identity provider timed out or could not be reached. Your reserved service fee has been refunded if the failure was recorded. Check request history before retrying." }, { status: 502 });
   }
 }

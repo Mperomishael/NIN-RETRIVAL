@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSuperAdmin, writeAudit, type ServiceClient } from "@/lib/server/admin";
+import { resolveStuckRequests } from "@/lib/server/stuck-requests";
 import { reconcileHostedTopups, reconcileVirtualAccountDeposits } from "@/lib/payments/flutterwave";
 
 export const runtime = "nodejs";
@@ -283,6 +284,26 @@ export async function POST(request: Request) {
         previous_price_kobo: before.price_kobo, previous_enabled: before.enabled,
       });
       return reply({ ok: true, message: "Service saved." });
+    }
+
+    if (action === "resolve_stuck") {
+      const result = await resolveStuckRequests(admin, 10);
+      await writeAudit(admin, actorId, null, "stuck_requests_resolved", "identity_request", null, { ...result });
+      const total = result.completed + result.refunded;
+      return reply({ ok: true, message: total === 0 && result.failed === 0 ? "No stuck requests found." : `${result.refunded} refunded, ${result.completed} completed${result.failed ? `, ${result.failed} could not be resolved` : ""}.` });
+    }
+
+    if (action === "complete_request") {
+      if (!isUuid(body.requestId)) return reply({ error: "Invalid request." }, 400);
+      const { data: row } = await admin.from("identity_requests").select("id,status,provider_reference,result_payload,user_id").eq("id", body.requestId).maybeSingle();
+      if (!row) return reply({ error: "Request not found." }, 404);
+      if (row.status !== "processing") return reply({ error: "Only processing requests can be marked completed." }, 400);
+      const { error } = await admin.rpc("topverify_finalize_request", {
+        p_request_id: row.id, p_status: "completed", p_provider_reference: row.provider_reference ?? "", p_result_summary: row.result_payload ?? {}, p_error_code: null,
+      });
+      if (error) throw error;
+      await writeAudit(admin, actorId, row.user_id as string, "request_marked_completed", "identity_request", row.id as string, {});
+      return reply({ ok: true, message: "Request marked completed." });
     }
 
     if (action === "reconcile_user") {
