@@ -2,7 +2,7 @@
 
 import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import {
-  AlertTriangle, Ban, Check, Copy, CreditCard, FileText, KeyRound, LayoutDashboard, Minus, Plus, RefreshCw, Receipt,
+  AlertTriangle, Ban, Check, Copy, Plug, CreditCard, FileText, KeyRound, LayoutDashboard, Minus, Plus, RefreshCw, Receipt,
   ScrollText, Search, ShieldCheck, UserCheck, Users, Wallet,
 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
@@ -10,7 +10,7 @@ import { Select } from "@/components/ui/Select";
 import { useConfirm } from "@/components/ui/Confirm";
 import { dateText, money } from "@/lib/format";
 
-type Tab = "overview" | "users" | "requests" | "payments" | "pricing" | "audit";
+type Tab = "overview" | "users" | "requests" | "payments" | "pricing" | "provider" | "audit";
 type Notice = (message: string, error?: boolean) => void;
 
 const tabs: Array<{ id: Tab; label: string; icon: typeof Users }> = [
@@ -19,6 +19,7 @@ const tabs: Array<{ id: Tab; label: string; icon: typeof Users }> = [
   { id: "requests", label: "Requests", icon: FileText },
   { id: "payments", label: "Payments", icon: Receipt },
   { id: "pricing", label: "Pricing", icon: CreditCard },
+  { id: "provider", label: "Provider", icon: Plug },
   { id: "audit", label: "Audit log", icon: ScrollText },
 ];
 
@@ -102,6 +103,7 @@ export function AdminConsole({ currentUserId, onRefreshServices, onNotice, initi
         {tab === "requests" && <RequestsTab onNotice={onNotice} />}
         {tab === "payments" && <PaymentsTab onNotice={onNotice} />}
         {tab === "pricing" && <PricingTab onRefresh={onRefreshServices} onNotice={onNotice} />}
+        {tab === "provider" && <ProviderTab onNotice={onNotice} />}
         {tab === "audit" && <AuditTab />}
       </div>
     </>
@@ -676,8 +678,86 @@ function PricingTab({ onRefresh, onNotice }: { onRefresh: () => void; onNotice: 
   );
 }
 
+
+type ProviderResult = {
+  ok: boolean; ms?: number; error?: string; http_status?: number; endpoint?: string; treated_as_success?: boolean;
+  provider_status?: string; provider_code?: string; provider_message?: string;
+  top_level_fields?: Record<string, string>; data_fields?: string[];
+};
+
+const providerServices = [
+  { value: "nin-lookup", label: "NIN lookup", field: "nin", input: "NIN" },
+  { value: "phone-lookup", label: "NIN by phone", field: "phone", input: "Phone number" },
+  { value: "bvn-verify", label: "BVN verification", field: "bvn", input: "BVN" },
+  { value: "tracking-id-lookup", label: "Tracking ID", field: "trackingId", input: "Tracking ID" },
+];
+
+function ProviderTab({ onNotice }: { onNotice: Notice }) {
+  const [serviceId, setServiceId] = useState("nin-lookup");
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<ProviderResult | null>(null);
+  const current = providerServices.find(s => s.value === serviceId) ?? providerServices[0];
+
+  async function run(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setResult(null);
+    try {
+      const response = await fetch("/api/admin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "provider_test", serviceId, [current.field]: value }) });
+      const body = await response.json().catch(() => ({})) as ProviderResult;
+      if (!response.ok && !body.error) throw new Error("The test could not be run.");
+      setResult(body);
+      if (body.error && response.status === 400) onNotice(body.error, true);
+    } catch (err) {
+      onNotice(err instanceof Error ? err.message : "The test could not be run.", true);
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="tv-admin-grid">
+      <section className="tv-panel">
+        <div className="tv-panel-heading"><div><h2>Test NINSlip</h2><p>Sends one real request. NINSlip charges your wallet.</p></div></div>
+        <form className="tv-form" onSubmit={run}>
+          <Select label="Service" value={serviceId} options={providerServices.map(s => ({ value: s.value, label: s.label }))} onChange={v => { setServiceId(v); setValue(""); setResult(null); }} />
+          <label className="tv-field"><span className="tv-field-label">{current.input}</span><input required value={value} onChange={e => setValue(e.target.value)} autoComplete="off" /></label>
+          <button type="submit" className="tv-button-primary" disabled={busy}>{busy ? <><span className="tv-button-spinner" aria-hidden="true" /> Testing</> : "Run test"}</button>
+        </form>
+      </section>
+      <section className="tv-panel">
+        <div className="tv-panel-heading"><div><h2>Result</h2></div></div>
+        {!result ? <Empty text={busy ? "Waiting for NINSlip..." : "Run a test to see the raw outcome."} /> : result.error && result.ok === false ? <Failed message={result.error} retry={() => setResult(null)} /> : (
+          <div className="tv-provider-result">
+            <div className={result.treated_as_success ? "tv-alert-card tv-alert-ok" : "tv-alert-card tv-alert-danger"}>
+              <div><strong>{result.treated_as_success ? "The app treats this as a success" : "The app treats this as a failure"}</strong><span>{result.ms} ms</span></div>
+            </div>
+            <dl className="tv-kv">
+              <div><dt>HTTP status</dt><dd>{result.http_status}</dd></div>
+              <div><dt>Endpoint</dt><dd>{result.endpoint}</dd></div>
+              <div><dt>Provider status</dt><dd>{result.provider_status || "-"}</dd></div>
+              <div><dt>Provider code</dt><dd>{result.provider_code || "-"}</dd></div>
+              <div><dt>Provider message</dt><dd>{result.provider_message || "-"}</dd></div>
+            </dl>
+            {result.top_level_fields && <><h3 className="tv-subheading">Fields returned</h3><div className="tv-chips">{Object.entries(result.top_level_fields).map(([k, v]) => <span key={k} className="tv-chip">{k}: {v}</span>)}</div></>}
+            {!!result.data_fields?.length && <><h3 className="tv-subheading">Inside the data</h3><div className="tv-chips">{result.data_fields.map(k => <span key={k} className="tv-chip">{k}</span>)}</div></>}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function auditDetail(meta: Record<string, unknown> | null) {
+  if (!meta) return "-";
+  const message = String(meta.provider_message ?? meta.reason ?? "");
+  const service = String(meta.service_id ?? "");
+  const http = meta.http_status ? `HTTP ${meta.http_status}` : "";
+  const parts = [service, http, message].filter(Boolean);
+  return parts.length ? parts.join(" · ") : "-";
+}
+
 function AuditTab() {
-  const { data, loading, error, reload } = useAdminData<{ logs: Array<{ id: string; actor_name: string; target_name: string; action: string; entity_type: string; created_at: string }> }>("view=audit");
+  const { data, loading, error, reload } = useAdminData<{ logs: Array<{ id: string; actor_name: string; target_name: string; action: string; entity_type: string; created_at: string; metadata: Record<string, unknown> | null }> }>("view=audit");
   if (loading && !data) return <Skeleton rows={6} />;
   if (error) return <Failed message={error} retry={reload} />;
   return (
@@ -685,13 +765,14 @@ function AuditTab() {
       {!data?.logs.length ? <Empty text="No audit entries." /> : (
         <div className="tv-table-scroll">
           <table className="tv-table">
-            <thead><tr><th>WHEN</th><th>ACTOR</th><th>ACTION</th><th>TARGET</th></tr></thead>
+            <thead><tr><th>WHEN</th><th>ACTOR</th><th>ACTION</th><th>TARGET</th><th>DETAILS</th></tr></thead>
             <tbody>{data.logs.map(l => (
               <tr key={l.id}>
                 <td data-label="WHEN">{dateText(l.created_at)}</td>
                 <td data-label="ACTOR">{l.actor_name}</td>
                 <td data-label="ACTION" style={{ textTransform: "capitalize" }}>{l.action.replace(/_/g, " ")}</td>
                 <td data-label="TARGET">{l.target_name || "-"}</td>
+                <td data-label="DETAILS">{auditDetail(l.metadata)}</td>
               </tr>
             ))}</tbody>
           </table>

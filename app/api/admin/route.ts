@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSuperAdmin, writeAudit, type ServiceClient } from "@/lib/server/admin";
+import { describeProviderResponse, providerBase, safeServicePayload } from "@/lib/server/ninslip";
 import { resolveStuckRequests } from "@/lib/server/stuck-requests";
 import { reconcileHostedTopups, reconcileVirtualAccountDeposits } from "@/lib/payments/flutterwave";
 
@@ -284,6 +285,29 @@ export async function POST(request: Request) {
         previous_price_kobo: before.price_kobo, previous_enabled: before.enabled,
       });
       return reply({ ok: true, message: "Service saved." });
+    }
+
+    if (action === "provider_test") {
+      const serviceId = String(body.serviceId ?? "");
+      let built: ReturnType<typeof safeServicePayload>;
+      try { built = safeServicePayload(serviceId, body); }
+      catch (error) { return reply({ error: error instanceof Error ? error.message : "Invalid test details." }, 400); }
+      const apiKey = process.env.NINSLIP_API_KEY;
+      if (!apiKey) return reply({ ok: false, error: "NINSLIP_API_KEY is not set on the server." }, 503);
+      const started = Date.now();
+      try {
+        const upstream = await fetch(providerBase + built.endpoint, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify(built.payload), cache: "no-store", signal: AbortSignal.timeout(30000),
+        });
+        const response = await upstream.json().catch(() => ({})) as Record<string, unknown>;
+        const details = describeProviderResponse(upstream.status, built.endpoint, response);
+        await writeAudit(admin, actorId, null, "provider_test", "service", serviceId, { ...details });
+        return reply({ ok: true, ms: Date.now() - started, ...details });
+      } catch (error) {
+        return reply({ ok: false, ms: Date.now() - started, error: `Could not reach NINSlip (${error instanceof Error ? error.name : "error"}).` }, 502);
+      }
     }
 
     if (action === "resolve_stuck") {
