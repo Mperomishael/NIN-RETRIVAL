@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, ArrowLeft, ArrowRight, ArrowUpRight, BadgeCheck, Building2, Check, ChevronRight, CircleHelp, Clock3, Copy, FileCheck2, FileImage, FilePenLine, FileSearch,
+  Activity, ArrowLeft, MailCheck, ArrowRight, ArrowUpRight, BadgeCheck, Building2, Check, ChevronRight, CircleHelp, Clock3, Copy, FileCheck2, FileImage, FilePenLine, FileSearch,
   FileText, Home, IdCard, Landmark, LogOut, Menu, RefreshCw, ScanFace, Search, ShieldCheck, Smartphone, UserRound, UserRoundCheck, Wallet, X,
 } from "lucide-react";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
@@ -38,7 +38,10 @@ export default function DashboardPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [history, setHistory] = useState<RequestRow[]>([]);
   const [section, setSection] = useState("Overview");
-  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
+  const [authMode, setAuthMode] = useState<"signin" | "signup" | "forgot">("signin");
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+  const [cooldown, setCooldown] = useState(0);
+  const [forgotSent, setForgotSent] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [landingServices, setLandingServices] = useState<Service[]>([
     { id: "nin-lookup", name: "NIN Verification", description: "Verify identity details with an authorized request.", category: "Verification", price_kobo: 35000, enabled: true },
@@ -226,6 +229,34 @@ export default function DashboardPage() {
     return () => { void supabase.removeChannel(channel); };
   }, [user?.id, supabase, refreshData]);
 
+  useEffect(() => {
+    const mode = new URLSearchParams(window.location.search).get("auth");
+    if (mode === "signin" || mode === "signup" || mode === "forgot") {
+      setAuthMode(mode);
+      setShowAuth(true);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setTimeout(() => setCooldown(value => value - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [cooldown]);
+
+  async function resendVerification(address: string) {
+    if (cooldown > 0) return;
+    try {
+      const response = await fetch("/api/auth/resend", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: address }) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "Could not send the email.");
+      setCooldown(60);
+      flash("A new verification email is on its way.");
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "Could not send the email.", true);
+    }
+  }
+
   const filteredServices = useMemo(() => services.filter(s => s.enabled && !["nin-lookup", "nin-slip", "nin-image-report"].includes(s.id) && (s.name + " " + s.description + " " + s.category).toLowerCase().includes(query.toLowerCase())), [services, query]);
   const serviceIcon = (id: string) => id === "ipe-clearance" ? BadgeCheck : id === "nin-image-report" ? FileText : id === "nin-validation" || id === "tracking-id-lookup" ? FileSearch : id === "nin-modification" ? FilePenLine : id === "demographic" ? UserRoundCheck : id.includes("phone") ? Smartphone : id.includes("slip") ? FileCheck2 : id.includes("bvn") ? Landmark : IdCard;
 
@@ -247,6 +278,14 @@ export default function DashboardPage() {
         });
         const created = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(created.error || "Unable to create your account.");
+        if (created.needsEmailConfirmation) {
+          setRegistrationNin("");
+          setPassword("");
+          setPendingEmail(email);
+          setCooldown(60);
+          if (created.emailSent === false) flash("Your account is created, but the email could not be sent. Tap Resend.", true);
+          return;
+        }
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
         if (data.user) {
@@ -255,9 +294,17 @@ export default function DashboardPage() {
           await refreshData(data.user.id);
           flash("NIN verified. Your account is active.");
         }
+      } else if (authMode === "forgot") {
+        const { error } = await supabase.auth.resetPasswordForEmail(email);
+        if (error && !/rate|limit/i.test(error.message)) throw error;
+        if (error) throw new Error("Please wait a minute before requesting another link.");
+        setForgotSent(true);
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        if (error) {
+          if (/not confirmed/i.test(error.message)) { setPendingEmail(email); throw new Error("Verify your email first. We can send the link again."); }
+          throw error;
+        }
         if (data.user) { setUser({ id: data.user.id, email: data.user.email }); await refreshData(data.user.id); flash("Welcome back to TopVerify."); }
       }
     } catch (error) { flash(error instanceof Error ? error.message : "Unable to complete authentication.", true); }
@@ -347,8 +394,18 @@ export default function DashboardPage() {
       <div className="tv-auth-mobile-brand"><div className="tv-brand-mark"><ShieldCheck size={23}/></div><strong>TopVerify</strong></div>
       <div className="tv-auth-form-wrap">
         <button className="tv-back-home" type="button" onClick={()=>{setShowAuth(false);setNotice("");}}><ArrowLeft size={15}/> Back to TopVerify</button>
-        <h2>{authMode === "signin" ? "Welcome back." : "Create your account."}</h2>
-        <p className="tv-muted">{authMode === "signin" ? "Sign in to continue." : "Your NIN is verified when you register."}</p>
+        {pendingEmail ? (
+          <div className="tv-pending">
+            <div className="tv-pending-icon"><MailCheck size={34} /></div>
+            <h2>Check your email</h2>
+            <p className="tv-muted">We sent a verification link to <strong>{pendingEmail}</strong>. Open it to finish and sign in.</p>
+            {notice && <div className={noticeError ? "tv-alert tv-alert-error" : "tv-alert"}>{notice}</div>}
+            <button type="button" className="tv-primary-btn tv-auth-submit" disabled={cooldown > 0} onClick={() => void resendVerification(pendingEmail)}>{cooldown > 0 ? `Resend in ${cooldown}s` : "Resend email"}</button>
+            <div className="tv-auth-switch"><button type="button" onClick={() => { setPendingEmail(null); setAuthMode("signin"); setNotice(""); }}>Back to sign in</button></div>
+          </div>
+        ) : <>
+        <h2>{authMode === "signin" ? "Welcome back." : authMode === "forgot" ? "Reset your password." : "Create your account."}</h2>
+        <p className="tv-muted">{authMode === "signin" ? "Sign in to continue." : authMode === "forgot" ? "We will email you a reset link." : "Your NIN is verified when you register."}</p>
         <form onSubmit={handleAuth} className="tv-form">
           {authMode === "signup" && <>
             <label>Full name<input required autoComplete="name" value={fullName} onChange={e=>setFullName(e.target.value)} placeholder="Your legal name"/></label>
@@ -359,12 +416,15 @@ export default function DashboardPage() {
             <Select label="Intended use" value={intendedUse} onChange={setIntendedUse} options={intendedOptions}/>
           </>}
           <label>Email address<input required type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@company.com"/></label>
-          <label>Password<input required minLength={8} type="password" autoComplete={authMode === "signin" ? "current-password" : "new-password"} value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 8 characters"/></label>
+          {authMode !== "forgot" && <label>Password<input required minLength={8} type="password" autoComplete={authMode === "signin" ? "current-password" : "new-password"} value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 8 characters"/></label>}
+          {authMode === "signin" && <button type="button" className="tv-forgot-link" onClick={()=>{setAuthMode("forgot");setForgotSent(false);setNotice("");}}>Forgot password?</button>}
           {authMode === "signup" && <label className="tv-terms"><input type="checkbox" checked={acceptedTerms} onChange={e=>setAcceptedTerms(e.target.checked)}/><span>I agree to the <a href="/acceptable-use" target="_blank" rel="noreferrer">acceptable-use rules</a> and <a href="/privacy" target="_blank" rel="noreferrer">privacy notice</a>.</span></label>}
+          {forgotSent && <div className="tv-alert">If that email has an account, a reset link is on its way.</div>}
           {notice && <div className={noticeError ? "tv-alert tv-alert-error" : "tv-alert"}>{notice}</div>}
-          <button className="tv-primary-btn tv-auth-submit" type="submit" disabled={authLoading} aria-busy={authLoading}><span className={authLoading ? "tv-button-spinner" : "tv-button-spinner tv-button-spinner-hidden"} aria-hidden="true"/>{authLoading ? (authMode === "signup" ? "Verifying NIN…" : "Signing in…") : authMode === "signin" ? "Sign in" : "Create account"} {!authLoading && <ArrowRight size={17}/>}</button>
+          <button className="tv-primary-btn tv-auth-submit" type="submit" disabled={authLoading} aria-busy={authLoading}><span className={authLoading ? "tv-button-spinner" : "tv-button-spinner tv-button-spinner-hidden"} aria-hidden="true"/>{authLoading ? (authMode === "signup" ? "Verifying NIN…" : authMode === "forgot" ? "Sending…" : "Signing in…") : authMode === "signin" ? "Sign in" : authMode === "forgot" ? "Send reset link" : "Create account"} {!authLoading && <ArrowRight size={17}/>}</button>
         </form>
-        <div className="tv-auth-switch">{authMode === "signin" ? "New to TopVerify?" : "Already have an account?"} <button onClick={()=>{setAuthMode(authMode==="signin"?"signup":"signin");setNotice("");}}>{authMode === "signin" ? "Create account" : "Sign in instead"}</button></div>
+        <div className="tv-auth-switch">{authMode === "signin" ? "New to TopVerify?" : authMode === "forgot" ? "Remembered it?" : "Already have an account?"} <button onClick={()=>{setAuthMode(authMode==="signin"?"signup":"signin");setNotice("");setForgotSent(false);}}>{authMode === "signin" ? "Create account" : authMode === "forgot" ? "Back to sign in" : "Sign in instead"}</button></div>
+        </>}
       </div>
     </div>
   </main>;
@@ -480,7 +540,7 @@ export default function DashboardPage() {
             <section className="tv-panel tv-history-panel"><div className="tv-panel-heading"><div><h2>Top-ups</h2></div></div><FundingTable userId={user.id} /></section>
           </>}
 
-          {section === "Admin" && isAdmin && <AdminConsole supabase={supabase} services={services} currentUserId={user.id} onRefreshServices={() => void refreshData(user.id)} onNotice={flash} />}
+          {section === "Admin" && isAdmin && <AdminConsole currentUserId={user.id} onRefreshServices={() => void refreshData(user.id)} onNotice={flash} />}
         </div>
         <footer className="tv-footer"><span>© {new Date().getFullYear()} TopVerify</span>{supportEmail && <a className="tv-footer-support" href={`mailto:${supportEmail}`}>Support</a>}</footer>
       </div>

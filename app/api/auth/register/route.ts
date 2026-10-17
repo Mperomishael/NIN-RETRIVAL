@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { serviceClient } from "@/lib/server/admin";
 import { approveProfileIfPending, provisionVirtualAccount } from "@/lib/payments/virtual-account";
 
@@ -14,6 +15,8 @@ function rateLimited(key: string) {
   attempts.set(key, recent);
   return recent.length > 6;
 }
+
+const skipEmailVerification = process.env.SKIP_EMAIL_VERIFICATION === "true";
 
 const text = (value: unknown, max: number) => (typeof value === "string" ? value.trim().slice(0, max) : "");
 
@@ -50,7 +53,7 @@ export async function POST(request: Request) {
   const { data: created, error: createError } = await admin.auth.admin.createUser({
     email,
     password,
-    email_confirm: true,
+    email_confirm: skipEmailVerification,
     user_metadata: {
       full_name: fullName, phone, business_name: businessName, business_address: businessAddress,
       intended_use: intendedUse, terms_accepted_at: new Date().toISOString(), terms_version: "topverify-acceptable-use-v1",
@@ -73,5 +76,17 @@ export async function POST(request: Request) {
   }
 
   await approveProfileIfPending(admin, userId);
-  return NextResponse.json({ ok: true });
+
+  if (skipEmailVerification) return NextResponse.json({ ok: true, needsEmailConfirmation: false });
+
+  let emailSent = false;
+  try {
+    const anon = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!, { auth: { persistSession: false, autoRefreshToken: false } });
+    const { error } = await anon.auth.resend({ type: "signup", email });
+    emailSent = !error;
+    if (error) console.error("[TopVerify register] Confirmation email failed", { reason: error.message.slice(0, 160) });
+  } catch (error) {
+    console.error("[TopVerify register] Confirmation email failed", { reason: error instanceof Error ? error.message.slice(0, 160) : "unknown" });
+  }
+  return NextResponse.json({ ok: true, needsEmailConfirmation: true, emailSent });
 }

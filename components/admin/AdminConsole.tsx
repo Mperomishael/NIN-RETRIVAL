@@ -2,14 +2,13 @@
 
 import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import {
-  Ban, Check, Copy, CreditCard, FileText, KeyRound, LayoutDashboard, Minus, Plus, RefreshCw, Receipt,
+  AlertTriangle, Ban, Check, Copy, CreditCard, FileText, KeyRound, LayoutDashboard, Minus, Plus, RefreshCw, Receipt,
   ScrollText, Search, ShieldCheck, UserCheck, Users, Wallet,
 } from "lucide-react";
-import type { createClient } from "@/lib/supabase/client";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { useConfirm } from "@/components/ui/Confirm";
-import { dateText, money, type Service } from "@/lib/format";
+import { dateText, money } from "@/lib/format";
 
 type Tab = "overview" | "users" | "requests" | "payments" | "pricing" | "audit";
 type Notice = (message: string, error?: boolean) => void;
@@ -76,9 +75,7 @@ function Pills<T extends string>({ value, options, onChange }: { value: T; optio
   return <div className="tv-pills" role="tablist">{options.map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={value === key} className={value === key ? "tv-pill tv-pill-active" : "tv-pill"} onClick={() => onChange(key)}>{label}</button>)}</div>;
 }
 
-export function AdminConsole({ supabase, services, currentUserId, onRefreshServices, onNotice, initialTab = "overview" }: {
-  supabase: ReturnType<typeof createClient>;
-  services: Service[];
+export function AdminConsole({ currentUserId, onRefreshServices, onNotice, initialTab = "overview" }: {
   currentUserId: string;
   onRefreshServices: () => void;
   onNotice: Notice;
@@ -102,9 +99,9 @@ export function AdminConsole({ supabase, services, currentUserId, onRefreshServi
       <div className="tv-admin-body" key={tab}>
         {tab === "overview" && <Overview onOpenTab={setTab} />}
         {tab === "users" && <UsersTab currentUserId={currentUserId} onNotice={onNotice} />}
-        {tab === "requests" && <RequestsTab services={services} onNotice={onNotice} />}
+        {tab === "requests" && <RequestsTab onNotice={onNotice} />}
         {tab === "payments" && <PaymentsTab onNotice={onNotice} />}
-        {tab === "pricing" && <PricingTab supabase={supabase} services={services} onRefresh={onRefreshServices} onNotice={onNotice} />}
+        {tab === "pricing" && <PricingTab onRefresh={onRefreshServices} onNotice={onNotice} />}
         {tab === "audit" && <AuditTab />}
       </div>
     </>
@@ -114,41 +111,75 @@ export function AdminConsole({ supabase, services, currentUserId, onRefreshServi
 type Stats = {
   users: { total: number; pending: number; approved: number; restricted: number; admins: number };
   wallet_liability_kobo: number; funded_month_kobo: number; funded_total_kobo: number;
-  revenue_month_kobo: number; revenue_total_kobo: number; pending_topups: number;
+  revenue_month_kobo: number; revenue_total_kobo: number; cost_month_kobo: number; cost_total_kobo: number;
+  loss_requests: number; loss_total_kobo: number; pending_topups: number;
   requests: { total: number; today: number; processing: number; completed: number; failed: number };
-  daily: Array<{ day: string; requests: number; revenue_kobo: number }>;
+  daily: Array<{ day: string; requests: number; revenue_kobo: number; profit_kobo: number }>;
 };
 
+type PricingAlert = { id: string; name: string; price_kobo: number; cost_kobo: number; kind: "below" | "nocost" | "thin" };
+
 function Overview({ onOpenTab }: { onOpenTab: (tab: Tab) => void }) {
-  const { data, loading, error, reload } = useAdminData<{ stats: Stats; signups: Array<{ id: string; full_name: string; business_name: string | null; status: string; created_at: string }>; recent: Array<{ id: string; user_name: string; service_id: string; status: string; fee_kobo: number; request_reference: string; created_at: string }> }>("view=overview");
+  const { data, loading, error, reload } = useAdminData<{ stats: Stats; alerts: PricingAlert[]; signups: Array<{ id: string; full_name: string; business_name: string | null; status: string; created_at: string }>; recent: Array<{ id: string; user_name: string; service_id: string; status: string; fee_kobo: number; request_reference: string; created_at: string }> }>("view=overview");
+  const [metric, setMetric] = useState<"revenue" | "profit">("profit");
   if (loading && !data) return <Skeleton rows={5} />;
   if (error || !data?.stats) return <Failed message={error || "No data."} retry={reload} />;
   const s = data.stats;
-  const maxRevenue = Math.max(1, ...s.daily.map(d => d.revenue_kobo));
+  const profitMonth = s.revenue_month_kobo - s.cost_month_kobo;
+  const profitTotal = s.revenue_total_kobo - s.cost_total_kobo;
+  const value = (d: Stats["daily"][number]) => metric === "profit" ? Math.max(0, d.profit_kobo) : d.revenue_kobo;
+  const maxValue = Math.max(1, ...s.daily.map(value));
+  const below = data.alerts.filter(a => a.kind === "below");
+  const noCost = data.alerts.filter(a => a.kind === "nocost");
+  const thin = data.alerts.filter(a => a.kind === "thin");
   const cards: Array<[string, string, string, ReactNode]> = [
-    ["Users", String(s.users.total), `${s.users.pending} pending, ${s.users.restricted} restricted`, <Users size={18} key="u" />],
+    ["Profit this month", money(profitMonth), `${money(s.revenue_month_kobo)} revenue, ${money(s.cost_month_kobo)} cost`, <CreditCard size={18} key="p" />],
     ["Wallet balances", money(s.wallet_liability_kobo), "Owed to customers", <Wallet size={18} key="w" />],
-    ["Revenue this month", money(s.revenue_month_kobo), `${money(s.revenue_total_kobo)} all time`, <CreditCard size={18} key="r" />],
     ["Funded this month", money(s.funded_month_kobo), `${s.pending_topups} pending top-ups`, <Receipt size={18} key="f" />],
+    ["Users", String(s.users.total), `${s.users.pending} pending, ${s.users.restricted} restricted`, <Users size={18} key="u" />],
   ];
   return (
     <>
+      {(below.length > 0 || s.loss_requests > 0) && (
+        <div className="tv-alert-card tv-alert-danger tv-rise" role="alert">
+          <AlertTriangle size={20} />
+          <div>
+            <strong>{below.length > 0 ? `${below.length} service${below.length > 1 ? "s are" : " is"} priced below cost` : "Requests were sold below cost"}</strong>
+            {below.map(a => <span key={a.id}>{a.name}: sold at {money(a.price_kobo)}, costs {money(a.cost_kobo)} (loses {money(a.cost_kobo - a.price_kobo)} each)</span>)}
+            {s.loss_requests > 0 && <span>{s.loss_requests} past request{s.loss_requests > 1 ? "s" : ""} lost {money(s.loss_total_kobo)} in total</span>}
+          </div>
+          <button type="button" className="tv-button-danger tv-btn-sm" onClick={() => onOpenTab("pricing")}>Fix pricing</button>
+        </div>
+      )}
+      {(noCost.length > 0 || thin.length > 0) && (
+        <div className="tv-alert-card tv-alert-warn tv-rise">
+          <AlertTriangle size={20} />
+          <div>
+            {noCost.length > 0 && <><strong>Cost not set for {noCost.length} service{noCost.length > 1 ? "s" : ""}</strong><span>{noCost.map(a => a.name).join(", ")}. Profit for these is overstated.</span></>}
+            {thin.length > 0 && <><strong>Thin margin</strong><span>{thin.map(a => `${a.name} (${money(a.price_kobo - a.cost_kobo)})`).join(", ")}</span></>}
+          </div>
+          <button type="button" className="tv-button-secondary tv-btn-sm" onClick={() => onOpenTab("pricing")}>Review</button>
+        </div>
+      )}
       <div className="tv-stat-grid">
-        {cards.map(([label, value, hint, icon], i) => (
+        {cards.map(([label, val, hint, icon], i) => (
           <div className="tv-stat-card tv-rise" style={{ animationDelay: `${i * 0.06}s` }} key={label}>
             <div><span>{label}</span><div className="tv-stat-icon tv-blue">{icon}</div></div>
-            <strong>{value}</strong><small>{hint}</small>
+            <strong className={label === "Profit this month" && profitMonth < 0 ? "tv-negative" : ""}>{val}</strong><small>{hint}</small>
           </div>
         ))}
       </div>
       <div className="tv-admin-grid">
         <section className="tv-panel">
-          <div className="tv-panel-heading"><div><h2>Last 7 days</h2><p>Request revenue per day</p></div></div>
-          <div className="tv-chart" role="img" aria-label="Revenue for the last seven days">
+          <div className="tv-panel-heading">
+            <div><h2>Last 7 days</h2><p>{money(profitTotal)} profit all time on {money(s.revenue_total_kobo)} revenue</p></div>
+            <Pills value={metric} onChange={setMetric} options={[["profit", "Profit"], ["revenue", "Revenue"]]} />
+          </div>
+          <div className="tv-chart" role="img" aria-label="Last seven days">
             {s.daily.map((d, i) => (
               <div className="tv-chart-col" key={d.day}>
                 <span className="tv-chart-value">{d.requests}</span>
-                <div className="tv-chart-bar" style={{ height: `${Math.max(6, (d.revenue_kobo / maxRevenue) * 100)}%`, animationDelay: `${i * 0.05}s` }} title={money(d.revenue_kobo)} />
+                <div className="tv-chart-bar" style={{ height: `${Math.max(6, (value(d) / maxValue) * 100)}%`, animationDelay: `${i * 0.05}s` }} title={money(metric === "profit" ? d.profit_kobo : d.revenue_kobo)} />
                 <span className="tv-chart-label">{new Date(d.day).toLocaleDateString("en-NG", { weekday: "short" })}</span>
               </div>
             ))}
@@ -424,7 +455,9 @@ function UserModal({ id, currentUserId, onClose, onChanged, onNotice }: { id: st
 
 type ReqRow = { id: string; user_name: string; service_id: string; status: string; fee_kobo: number; request_reference: string; provider_reference: string | null; error_code: string | null; created_at: string };
 
-function RequestsTab({ services, onNotice }: { services: Service[]; onNotice: Notice }) {
+function RequestsTab({ onNotice }: { onNotice: Notice }) {
+  const catalog = useAdminData<{ services: Array<{ id: string; name: string }> }>("view=pricing");
+  const services = catalog.data?.services ?? [];
   const [status, setStatus] = useState("");
   const [q, setQ] = useState("");
   const [search, setSearch] = useState("");
@@ -535,51 +568,91 @@ function PaymentsTab({ onNotice }: { onNotice: Notice }) {
   );
 }
 
-function PricingTab({ supabase, services, onRefresh, onNotice }: { supabase: ReturnType<typeof createClient>; services: Service[]; onRefresh: () => void; onNotice: Notice }) {
+type PricingRow = { id: string; name: string; description: string; category: string; price_kobo: number; cost_kobo: number; enabled: boolean };
+
+function MarginChip({ price, cost }: { price: number; cost: number }) {
+  if (cost <= 0) return <span className="tv-margin tv-margin-warn">Cost not set</span>;
+  const diff = price - cost;
+  if (diff < 0) return <span className="tv-margin tv-margin-bad">Below cost: loses {money(Math.round(-diff * 100))} each</span>;
+  const pct = price > 0 ? Math.round((diff / price) * 100) : 0;
+  return <span className={pct < 15 ? "tv-margin tv-margin-warn" : "tv-margin tv-margin-good"}>Profit {money(Math.round(diff * 100))} each ({pct}%)</span>;
+}
+
+function PricingTab({ onRefresh, onNotice }: { onRefresh: () => void; onNotice: Notice }) {
+  const { data, loading, error, reload } = useAdminData<{ services: PricingRow[] }>("view=pricing");
+  const { confirm, dialog } = useConfirm();
   const [prices, setPrices] = useState<Record<string, string>>({});
+  const [costs, setCosts] = useState<Record<string, string>>({});
   const [enabled, setEnabled] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState("");
-  useEffect(() => {
-    setPrices(Object.fromEntries(services.map(s => [s.id, String(s.price_kobo / 100)])));
-    setEnabled(Object.fromEntries(services.map(s => [s.id, s.enabled])));
-  }, [services]);
 
-  async function save(service: Service) {
-    const value = Number(prices[service.id]);
+  useEffect(() => {
+    if (!data) return;
+    setPrices(Object.fromEntries(data.services.map(x => [x.id, String(x.price_kobo / 100)])));
+    setCosts(Object.fromEntries(data.services.map(x => [x.id, String(x.cost_kobo / 100)])));
+    setEnabled(Object.fromEntries(data.services.map(x => [x.id, x.enabled])));
+  }, [data]);
+
+  async function save(service: PricingRow) {
+    const price = Number(prices[service.id]);
+    const cost = Number(costs[service.id]);
     const on = enabled[service.id] ?? service.enabled;
-    if (!Number.isFinite(value) || value < 0) { onNotice("Enter a valid price.", true); return; }
-    if (on && value <= 0) { onNotice("Set a fee above zero before enabling a service.", true); return; }
+    if (!Number.isFinite(price) || price < 0 || !Number.isFinite(cost) || cost < 0) { onNotice("Enter a valid price and cost.", true); return; }
+    if (on && price <= 0) { onNotice("Set a price above zero before enabling a service.", true); return; }
+    if (on && cost > 0 && price < cost) {
+      const ok = await confirm({
+        title: "Price is below your cost",
+        message: `${service.name} costs ${money(Math.round(cost * 100))} but sells for ${money(Math.round(price * 100))}. You will lose ${money(Math.round((cost - price) * 100))} on every request.`,
+        confirmLabel: "Save anyway", tone: "danger",
+      });
+      if (!ok) return;
+    }
     setBusy(service.id);
-    const { error } = await supabase.from("services").update({ price_kobo: Math.round(value * 100), enabled: on, updated_at: new Date().toISOString() }).eq("id", service.id);
-    if (error) onNotice("Could not save service settings.", true);
-    else { onNotice("Service settings saved."); onRefresh(); }
-    setBusy("");
+    try {
+      const result = await adminPost({ action: "save_service", serviceId: service.id, priceNaira: price, costNaira: cost, enabled: on });
+      onNotice(result.message ?? "Saved.");
+      await reload();
+      onRefresh();
+    } catch (err) {
+      onNotice(err instanceof Error ? err.message : "Could not save.", true);
+    } finally { setBusy(""); }
   }
 
+  if (loading && !data) return <Skeleton rows={6} />;
+  if (error || !data) return <Failed message={error || "No data."} retry={reload} />;
+  const belowCount = data.services.filter(x => x.enabled && x.cost_kobo > 0 && x.price_kobo < x.cost_kobo).length;
+
   return (
-    <section className="tv-panel tv-pricing-list">
-      {services.map(service => {
-        const on = enabled[service.id] ?? service.enabled;
-        return (
-          <div className="tv-price-row" key={service.id}>
-            <div>
-              <strong>{service.name}</strong>
-              <span>{service.description}</span>
-              <small className={on ? "tv-table-status tv-table-success" : "tv-table-status tv-table-pending"}>{on ? "Visible" : "Hidden"}</small>
+    <>
+      {belowCount > 0 && <div className="tv-alert-card tv-alert-danger"><AlertTriangle size={20} /><div><strong>{belowCount} enabled service{belowCount > 1 ? "s are" : " is"} priced below cost</strong></div></div>}
+      <section className="tv-panel tv-pricing-list">
+        {data.services.map(service => {
+          const on = enabled[service.id] ?? service.enabled;
+          const price = Number(prices[service.id] ?? service.price_kobo / 100);
+          const cost = Number(costs[service.id] ?? service.cost_kobo / 100);
+          return (
+            <div className="tv-price-row" key={service.id}>
+              <div>
+                <strong>{service.name}</strong>
+                <span>{service.category}</span>
+                <MarginChip price={price} cost={cost} />
+              </div>
+              <label className="tv-field"><span className="tv-field-label">Price (NGN)</span><input type="number" min="0" inputMode="decimal" value={prices[service.id] ?? ""} onChange={e => setPrices({ ...prices, [service.id]: e.target.value })} /></label>
+              <label className="tv-field"><span className="tv-field-label">Your cost (NGN)</span><input type="number" min="0" inputMode="decimal" value={costs[service.id] ?? ""} onChange={e => setCosts({ ...costs, [service.id]: e.target.value })} /></label>
+              <label className="tv-switch">
+                <input type="checkbox" checked={on} onChange={e => setEnabled({ ...enabled, [service.id]: e.target.checked })} />
+                <span className="tv-switch-track" aria-hidden="true" />
+                <span>Visible</span>
+              </label>
+              <button type="button" className="tv-button-primary" disabled={busy === service.id} onClick={() => void save(service)}>
+                {busy === service.id ? <><span className="tv-button-spinner" aria-hidden="true" /> Saving</> : <><Check size={16} /> Save</>}
+              </button>
             </div>
-            <label className="tv-field"><span className="tv-field-label">Fee (NGN)</span><input type="number" min="0" value={prices[service.id] ?? String(service.price_kobo / 100)} onChange={e => setPrices({ ...prices, [service.id]: e.target.value })} /></label>
-            <label className="tv-switch">
-              <input type="checkbox" checked={on} onChange={e => setEnabled({ ...enabled, [service.id]: e.target.checked })} />
-              <span className="tv-switch-track" aria-hidden="true" />
-              <span>Visible</span>
-            </label>
-            <button type="button" className="tv-button-primary" disabled={busy === service.id} onClick={() => void save(service)}>
-              {busy === service.id ? <><span className="tv-button-spinner" aria-hidden="true" /> Saving</> : <><Check size={16} /> Save</>}
-            </button>
-          </div>
-        );
-      })}
-    </section>
+          );
+        })}
+      </section>
+      {dialog}
+    </>
   );
 }
 
