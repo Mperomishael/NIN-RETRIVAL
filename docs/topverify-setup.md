@@ -5,7 +5,7 @@
 Configure these in Vercel Project Settings → Environment Variables for Production and Preview as appropriate:
 
 - `NEXT_PUBLIC_SUPABASE_URL`: the TopVerify Supabase project URL.
-- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: the project's publishable key.
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: the project's publishable key. Existing deployments may use `NEXT_PUBLIC_SUPABASE_ANON_KEY`; either key name is supported, with the publishable key taking precedence.
 - `SUPABASE_SERVICE_ROLE_KEY`: server-only Supabase secret used by trusted billing/request code. Never prefix it with `NEXT_PUBLIC_`, expose it in a browser, or commit it to GitHub.
 - `NINSLIP_API_KEY`: the authorized NINSlip Bearer API token. Never expose it to the browser.
 - `NEXT_PUBLIC_SITE_URL`: canonical HTTPS origin for the TopVerify site, used for the Flutterwave return URL.
